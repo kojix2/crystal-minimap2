@@ -73,13 +73,13 @@ module Minimap2
         @pending = nil
       end
 
-      while (s = next_seq(with_qual, with_comment))
+      while s = next_seq(with_qual, with_comment)
         a << s
         size += s.l_seq
         if size >= chunk_size
           if frag_mode && a.last.l_seq < CHECK_PAIR_THRES
             # keep reading until we get a read with a different name (pair boundary)
-            while (s2 = next_seq(with_qual, with_comment))
+            while s2 = next_seq(with_qual, with_comment)
               if same_qname?(s2.name, a.last.name)
                 a << s2
               else
@@ -102,7 +102,7 @@ module Minimap2
     private def next_seq(with_qual : Bool, with_comment : Bool) : BSeq1?
       # Skip blank lines and lines that don't start a record
       line = read_non_empty_line
-      return nil if line.nil?
+      return if line.nil?
 
       if line.starts_with?('>')
         # FASTA
@@ -154,7 +154,7 @@ module Minimap2
     private def read_non_empty_line : String?
       loop do
         line = @io.gets(chomp: true)
-        return nil if line.nil?
+        return if line.nil?
         stripped = line.strip
         return stripped unless stripped.empty?
       end
@@ -162,7 +162,7 @@ module Minimap2
 
     # Split "name [comment]" on first whitespace
     private def split_header(header : String, want_comment : Bool) : {String, String?}
-      i = header.each_char.with_index.find { |c, _| c == ' ' || c == '\t' }.try(&.[1])
+      i = header.each_char.with_index.find { |chr, _| chr == ' ' || chr == '\t' }.try(&.[1])
       if i
         name = header[0...i]
         comment = want_comment ? header[(i + 1)..].lstrip : nil
@@ -191,14 +191,14 @@ module Minimap2
     size = 0_i64
 
     loop do
-      seqs = fps.map { |fp| fp.send(:next_seq, with_qual, with_comment) }
-      if seqs.any?(&.nil?)
-        if seqs.any? { |s| !s.nil? }
+      seqs = fps.map(&.send(:next_seq, with_qual, with_comment))
+      if seqs.any?(Nil)
+        if seqs.any? { |seq| !seq.nil? }
           STDERR.puts "[WARNING] query files have different number of records; extra records skipped."
         end
         break
       end
-      seqs.each { |s| next unless s; a << s; size += s.l_seq }
+      seqs.each { |seq| next unless seq; a << seq; size += seq.l_seq }
       break if size >= chunk_size
     end
     a

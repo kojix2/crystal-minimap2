@@ -27,7 +27,7 @@ module Paftools
       io.each_line(chomp: true) do |line|
         if line.starts_with?('#')
           next if line =~ /^##(source|reference)=/
-          if (m = /^##contig=.*ID=([^\s,]+)/.match(line))
+          if m = /^##contig=.*ID=([^\s,]+)/.match(line)
             next unless re_ctg.match(m[1])
           elsif line.starts_with?("#CHROM")
             t = line.split('\t'); t.delete_at(t.size - 1); t[-1] = sample
@@ -41,7 +41,7 @@ module Paftools
         end
         t = line.split('\t')
         next unless re_ctg.match(t[0])
-        gt : String? = nil; ad : Array(Int32)? = nil
+        ad : Array(Int32)? = nil
         filters = [] of String; ht = [nil, nil] of String?
         [0, 1].each do |hi|
           m = /^(\.|[0-9]+)\/(\.|[0-9]+):(\S+)/.match(t[9 + hi])

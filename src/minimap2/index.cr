@@ -217,8 +217,8 @@ module Minimap2
     def stat : Nil
       hpc = (@flag & I_HPC) != 0
       total_len = @seq.sum(&.len.to_u64)
-      n_distinct = @b_arr.sum { |bkt| bkt.h.size.to_i64 }
-      n_singletons = @b_arr.sum { |bkt| bkt.h.count { |_, v| v.size == 1 }.to_i64 }
+      n_distinct = @b_arr.sum(&.h.size.to_i64)
+      n_singletons = @b_arr.sum(&.h.count { |_, v| v.size == 1 }.to_i64)
       total_occ = @b_arr.sum { |bkt| bkt.h.sum { |_, v| v.size.to_i64 } }
       t = Minimap2.realtime - Minimap2.realtime0
       STDERR.printf(
@@ -285,8 +285,8 @@ module Minimap2
     # -------------------------------------------------------------------------
     def self.load(io : IO) : MmIdx?
       magic = Bytes.new(4)
-      return nil if io.read(magic) < 4
-      return nil unless magic == IDX_MAGIC.to_slice
+      return if io.read(magic) < 4
+      return unless magic == IDX_MAGIC.to_slice
       w = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
       k = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
       b = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
@@ -332,7 +332,7 @@ module Minimap2
     # -------------------------------------------------------------------------
     # Check if a file is a prebuilt index; returns file size if yes, 0 if no.
     # -------------------------------------------------------------------------
-    def self.is_idx?(fn : String) : Int64
+    def self.idx?(fn : String) : Int64
       return 0_i64 if fn == "-"
       return -1_i64 unless File.exists?(fn)
       magic = Bytes.new(4)
@@ -351,7 +351,7 @@ module Minimap2
     def self.from_file(fp : BSeqFile, w : Int32, k : Int32, b : Int32,
                        flag : Int32, mini_batch_size : Int32,
                        n_threads : Int32, batch_size : UInt64) : MmIdx?
-      return nil if fp.eof?
+      return if fp.eof?
 
       mi = new(w, k, b, flag)
       sum_len = 0_u64
@@ -454,7 +454,7 @@ module Minimap2
   # ---------------------------------------------------------------------------
   class MmIdxReader
     def initialize(@fn : String, @opt : MmIdxOpt, @fn_out : String? = nil)
-      @is_idx = MmIdx.is_idx?(@fn)
+      @is_idx = MmIdx.idx?(@fn)
       @n_parts = 0
       if @is_idx > 0
         @idx_io = File.open(@fn, "rb")
@@ -472,7 +472,7 @@ module Minimap2
 
     def read(n_threads : Int32 = 1) : MmIdx?
       mi : MmIdx?
-      if (idx = @idx_io)
+      if idx = @idx_io
         mi = MmIdx.load(idx)
         if mi && Minimap2.verbose >= 2
           if mi.k != @opt.k || mi.w != @opt.w || (mi.flag & I_HPC) != (@opt.flag & I_HPC)

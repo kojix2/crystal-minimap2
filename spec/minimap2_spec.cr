@@ -83,8 +83,8 @@ describe Minimap2 do
       Minimap2.mm_sketch(seq1, seq1.size, w: 5, k: 10, rid: 0_u32, is_hpc: false, p: mv1)
       Minimap2.mm_sketch(seq2, seq2.size, w: 5, k: 10, rid: 0_u32, is_hpc: false, p: mv2)
       # They should differ (ACGT vs TTTT)
-      xs1 = mv1.map(&.x).sort
-      xs2 = mv2.map(&.x).sort
+      xs1 = mv1.map(&.x).sort!
+      xs2 = mv2.map(&.x).sort!
       xs1.should_not eq(xs2)
     end
   end
@@ -243,7 +243,7 @@ describe Minimap2 do
       aln = Minimap2::Aligner.from_strings([ref], ["ref"], "map-ont")
       hits = aln.map(qry, "query")
       if !hits.empty?
-        hits.first.rev.should be_false # query is same strand
+        hits.first.rev?.should be_false # query is same strand
       end
     end
   end

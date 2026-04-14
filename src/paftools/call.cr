@@ -30,7 +30,7 @@ module Paftools
     fa : Hash(String, String)? = nil
     fa_lens : Array({String, Int32})? = nil
     is_vcf = false
-    if (fn = fa_fn)
+    if fn = fa_fn
       fa_data, lens_data = read_fasta(fn)
       fa = fa_data; fa_lens = lens_data; is_vcf = true
     end

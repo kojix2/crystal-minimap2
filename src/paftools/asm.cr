@@ -4,7 +4,7 @@ module Paftools
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   private def self.n_stat(lens : Array(Int32), tot : Int64, quantile : Float64) : Int32
-    sorted = lens.sort.reverse
+    sorted = lens.sort.reverse!
     sum = 0_i64
     sorted.each do |l|
       return l if sum <= quantile * tot && sum + l > quantile * tot
@@ -14,7 +14,7 @@ module Paftools
   end
 
   private def self.aun_stat(lens : Array(Int32), tot : Int64) : Float64
-    sorted = lens.sort.reverse
+    sorted = lens.sort.reverse!
     x = 0_i64; y = 0.0
     sorted.each do |l|
       l2 = x + l <= tot ? l : (tot - x).to_i
@@ -108,11 +108,14 @@ module Paftools
           nms = (m = /\tNM:i:(\d+)/.match(line)) ? m[1].to_i : nil
           if cg && nms
             n_m = 0; n_gapo = 0; n_gaps = 0
-            cg.scan(/(\d+)([MID])/) { |cm| l = cm[1].to_i; if cm[2] == "M"
-              n_m += l
-            else
-              n_gapo += 1; n_gaps += l
-            end }
+            cg.scan(/(\d+)([MID])/) do |cm|
+              l = cm[1].to_i
+              if cm[2] == "M"
+                n_m += l
+              else
+                n_gapo += 1; n_gaps += l
+              end
+            end
             raise "NM < gaps" if nms < n_gaps
             diff = (nms - n_gaps + n_gapo).to_f / (n_m + n_gapo)
             next if diff > max_diff
@@ -180,7 +183,7 @@ module Paftools
     end
 
     puts header.join('\t')
-    labels.size.times { |i| puts (["#{labels[i]}"] + rst[i]).join('\t') }
+    labels.size.times { |k| puts (["#{labels[k]}"] + rst[k]).join('\t') }
     0
   end
 
@@ -215,11 +218,13 @@ module Paftools
       cnt[0] = n_full
       s = b.sort_by { |r| r[2] }
       l_cov2 = 0; st2 = s[0][2]; en2 = s[0][3]
-      (1...s.size).each { |j| if s[j][2] <= en2
-        en2 = [en2, s[j][3]].max
-      else
-        l_cov2 += en2 - st2; st2 = s[j][2]; en2 = s[j][3]
-      end }
+      (1...s.size).each do |j|
+        if s[j][2] <= en2
+          en2 = [en2, s[j][3]].max
+        else
+          l_cov2 += en2 - st2; st2 = s[j][2]; en2 = s[j][3]
+        end
+      end
       l_cov2 += en2 - st2
       cnt[1] = b[0][1] > 0 ? l_cov2.to_f / b[0][1] : 0.0
       cnt[2] = b.size
@@ -254,7 +259,7 @@ module Paftools
     end
 
     # Deduplicate reference: keep longest non-overlapping gene per locus
-    gene_list = refpos.values.sort_by { |g| {g[2], g[3].to_i} }
+    gene_list = refpos.values.sort_by! { |g| {g[2], g[3].to_i} }
     gene_nr = Hash(String, Bool).new; last_j = 0
     (1...gene_list.size).each do |j|
       if gene_list[j][2] != gene_list[last_j][2] || gene_list[j][3].to_i >= gene_list[last_j][4].to_i
@@ -269,7 +274,7 @@ module Paftools
     rst2 = Array.new(col1.size) { Array.new(n_fn, 0) }
 
     gene.each do |g, arr|
-      next unless (ref_row = arr[0])
+      next unless ref_row = arr[0]
       ref_cnt = ref_row[0].as(Int32)
       next if ref_cnt != 1
       next unless gene_nr[g]

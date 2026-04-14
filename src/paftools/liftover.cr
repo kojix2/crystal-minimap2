@@ -48,7 +48,7 @@ module Paftools
         ivs = bed[t[0]]?; next unless ivs
         tp : String? = nil; cg : String? = nil
         t[12..].each do |tag|
-          if (m = /^(\S\S):[AZif]:(\S+)/.match(tag))
+          if m = /^(\S\S):[AZif]:(\S+)/.match(tag)
             tp = m[2] if m[1] == "tp"
             cg = m[2] if m[1] == "cg"
           end
@@ -64,9 +64,10 @@ module Paftools
 
         if max_div >= 0.0 && max_div < 1.0
           n_gaps = 0; n_opens = 0
-          cg.scan(/(\d+)([MID])/) { |m| if m[2] != "M"
+          cg.scan(/(\d+)([MID])/) do |m|
+            next if m[2] == "M"
             n_gaps += m[1].to_i; n_opens += 1
-          end }
+          end
           n_mm = t[10].to_i - t[9].to_i - n_gaps
           n_diff2 = n_mm + n_opens
           next if n_diff2.to_f / (n_diff2 + t[9].to_i) > max_div

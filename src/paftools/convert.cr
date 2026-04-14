@@ -52,17 +52,14 @@ module Paftools
           STDERR.puts "Error at line #{lineno}: no length for contig #{t[2]}"; return 1
         end
 
-        nn = 0; nm : Int32? = nil; md : String? = nil; cs_str : String? = nil
-        if (m = /\tNM:i:(\d+)/.match(line))
+        nm : Int32? = nil; md : String? = nil; cs_str : String? = nil
+        if m = /\tNM:i:(\d+)/.match(line)
           nm = m[1].to_i
         end
-        if (m = /\tnn:i:(\d+)/.match(line))
-          nn = m[1].to_i
-        end
-        if (m = /\tMD:Z:(\S+)/.match(line))
+        if m = /\tMD:Z:(\S+)/.match(line)
           md = m[1]
         end
-        if (m = /\tcs:Z:(\S+)/.match(line))
+        if m = /\tcs:Z:(\S+)/.match(line)
           cs_str = m[1]
         end
         md = nil if t[9] == "*"
@@ -113,7 +110,7 @@ module Paftools
           nm_val = i_ops[1] + d_ops[1] + mm
           STDERR.puts "WARNING at line #{lineno}: NM differs" if nm && nm != nm_val
           nm = nm_val
-        elsif (nv = nm)
+        elsif nv = nm
           if nv < i_ops[1] + d_ops[1]
             STDERR.puts "WARNING at line #{lineno}: NM < total gaps"
             nm = i_ops[1] + d_ops[1]
@@ -139,7 +136,7 @@ module Paftools
           seq = t[9]
           k = 0; cx = 0; cy = 0; mx = 0; my = 0
           md.scan(/(\d+)|(\^[A-Za-z]+)|([A-Za-z])/) do |mm_m|
-            if (del_seq = mm_m[2]?) # deletion ^XYZ
+            if del_seq = mm_m[2]? # deletion ^XYZ
               len = del_seq.size - 1
               cs_parts << "-" << del_seq[1..]
               mx += len; cx += len; k += 1
@@ -179,7 +176,7 @@ module Paftools
 
         type = (flag & 0x100) != 0 ? "S" : "P"
         tags = ["tp:A:#{type}"]
-        if (nv = nm)
+        if nv = nm
           tags << "NM:i:#{nv}"; tags << "mm:i:#{mm}"
         end
         tags << "gn:i:#{i_ops[1] + d_ops[1]}" << "go:i:#{i_ops[0] + d_ops[0]}"
@@ -212,7 +209,7 @@ module Paftools
 
     open_in(args[0]) do |io|
       io.each_line(chomp: true) do |line|
-        if (m = /^>(\S+)\s+(\S+)\s+(\d+)\s+(\d+)/.match(line))
+        if m = /^>(\S+)\s+(\S+)\s+(\d+)\s+(\d+)/.match(line)
           rname = m[1]; qname = m[2]; rlen = m[3].to_i; qlen = m[4].to_i
           seen_gt = true; next
         end
@@ -282,7 +279,7 @@ module Paftools
         t = line.split('\t', 13)
         cs : String? = nil
         (12...t.size).each do |j|
-          if (m = /^cs:Z:(\S+)/.match(t[j]))
+          if m = /^cs:Z:(\S+)/.match(t[j])
             cs = m[1]; break
           end
         end

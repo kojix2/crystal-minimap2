@@ -24,7 +24,7 @@ module Paftools
     end
 
     ens2ucsc = Hash(String, String).new
-    if (fai = fn_ucsc)
+    if fai = fn_ucsc
       File.open(fai) do |f|
         f.each_line(chomp: true) do |line|
           t = line.split('\t'); s = t[0]
@@ -46,7 +46,7 @@ module Paftools
     print_bed12 = ->(exons : Array(Array(String)), cds_st : Int32, cds_en : Int32) {
       return if exons.empty?
       name = is_short ? "#{exons[0][7]}|#{exons[0][5]}" : exons[0][4..6].join("|")
-      sorted = exons.sort_by { |e| e[1].to_i }
+      sorted = exons.sort_by(&.[1].to_i)
       if print_junc
         (1...sorted.size).each do |j|
           puts [sorted[j][0], sorted[j - 1][2], sorted[j][1], name, 1000, sorted[j][3]].join('\t')
@@ -93,7 +93,7 @@ module Paftools
 
         id = nil; type = ""; name = "N/A"; biotype = ""
         tname = "N/A"; ens_canonical = false
-        line.scan(re_gtf) { |m|
+        line.scan(re_gtf) do |m|
           case m[1]
           when "transcript_id"              ; id = m[2]
           when "transcript_type"            ; type = m[2]
@@ -102,8 +102,8 @@ module Paftools
           when "transcript_name"            ; tname = m[2]
           when "tag"                        ; ens_canonical = true if m[2] == "Ensembl_canonical"
           end
-        }
-        line.scan(re_gff3) { |m|
+        end
+        line.scan(re_gff3) do |m|
           case m[1]
           when "transcript_id"              ; id = m[2]
           when "transcript_type"            ; type = m[2]
@@ -111,7 +111,7 @@ module Paftools
           when "gene_name", "gene_id"       ; name = m[2]
           when "transcript_name"            ; tname = m[2]
           end
-        }
+        end
         next if ens_canon_only && !ens_canonical
         type = biotype if type.empty? && !biotype.empty?
         next unless id
@@ -152,7 +152,7 @@ module Paftools
 
     process = ->(a : Array(Array(String))) {
       return if a.size < 2
-      s = a.sort_by { |e| e[4].to_i }
+      s = a.sort_by(&.[4].to_i)
       (1...s.size).each { |j| puts [s[j][1], s[j - 1][5], s[j][4], s[j][0], 0, s[j][7]].join('\t') }
     }
 
@@ -197,10 +197,10 @@ module Paftools
       STDERR.puts "Usage: paftools splice2bed [-m] <in.paf>|<in.sam>"; return 1
     end
 
-    conv = if (fn = fn_conv)
-             Hash(String, String).new.tap { |h|
+    conv = if fn = fn_conv
+             Hash(String, String).new.tap do |h|
                File.open(fn) { |f| f.each_line(chomp: true) { |l| t = l.split('\t'); h[t[0]] = t[1] } }
-             }
+             end
            end
 
     colors = ["0,128,255", "255,0,0", "0,192,0"]
@@ -270,8 +270,8 @@ module Paftools
           row[2] = (row[1].to_i + x).to_s
         end
         row.concat([row[1], row[2], is_pri ? "0" : "2",
-                    bs.size.to_s, bl.map { |v| v.to_s }.join(",") + ",",
-                    bs.map { |v| v.to_s }.join(",") + ","])
+                    bs.size.to_s, bl.map(&.to_s).join(",") + ",",
+                    bs.map(&.to_s).join(",") + ","])
         buf << row
       end
     end

@@ -88,7 +88,7 @@ private def crystal_minimap2(ref_fa : String, qry_fa : String, preset : String) 
       rows << PafRow.new(
         qname: qname, qlen: qseq.size,
         qs: h.qs, qe: h.qe,
-        strand: h.rev ? '-' : '+',
+        strand: h.rev? ? '-' : '+',
         tname: tname, tlen: tlen,
         rs: h.rs, re: h.re,
         mlen: h.mlen, blen: h.blen, mapq: h.mapq.to_i32
@@ -191,29 +191,29 @@ describe "Crystal port vs C minimap2" do
     end
 
     it "Crystal maps both reads" do
-      qnames = cr.map(&.qname).uniq
+      qnames = cr.map(&.qname).uniq!
       qnames.should contain("read1")
       qnames.should contain("read2")
     end
 
     it "read1 primary hit: strand matches C primary" do
-      c_r1 = c.select { |r| r.qname == "read1" }.first
-      cr_r1 = cr.select { |r| r.qname == "read1" }.first
+      c_r1 = c.find! { |r| r.qname == "read1" }
+      cr_r1 = cr.find! { |r| r.qname == "read1" }
       cr_r1.strand.should eq(c_r1.strand)
     end
 
     it "read2 primary hit: strand matches C primary" do
-      c_r2 = c.select { |r| r.qname == "read2" }.first
-      cr_r2 = cr.select { |r| r.qname == "read2" }.first
+      c_r2 = c.find! { |r| r.qname == "read2" }
+      cr_r2 = cr.find! { |r| r.qname == "read2" }
       cr_r2.strand.should eq(c_r2.strand)
     end
 
     it "read1 primary: maps to ref contig" do
-      cr.select { |r| r.qname == "read1" }.first.tname.should eq("ref")
+      cr.find! { |r| r.qname == "read1" }.tname.should eq("ref")
     end
 
     it "read2 primary: maps to ref contig" do
-      cr.select { |r| r.qname == "read2" }.first.tname.should eq("ref")
+      cr.find! { |r| r.qname == "read2" }.tname.should eq("ref")
     end
 
     # Note: C minimap2 splits the inversion into 3 sub-alignments per read.
@@ -223,18 +223,18 @@ describe "Crystal port vs C minimap2" do
     # (the union of all C sub-alignments ± slack).
     it "read1 primary: ref span falls within C's combined ref range (±500 bp slack)" do
       c_r1_all = c.select { |r| r.qname == "read1" }
-      cr_r1 = cr.select { |r| r.qname == "read1" }.first
-      c_rs_min = c_r1_all.map(&.rs).min - 500
-      c_re_max = c_r1_all.map(&.re).max + 500
+      cr_r1 = cr.find! { |r| r.qname == "read1" }
+      c_rs_min = c_r1_all.min_of(&.rs) - 500
+      c_re_max = c_r1_all.max_of(&.re) + 500
       cr_r1.rs.should be >= c_rs_min
       cr_r1.re.should be <= c_re_max
     end
 
     it "read2 primary: ref span falls within C's combined ref range (±500 bp slack)" do
       c_r2_all = c.select { |r| r.qname == "read2" }
-      cr_r2 = cr.select { |r| r.qname == "read2" }.first
-      c_rs_min = c_r2_all.map(&.rs).min - 500
-      c_re_max = c_r2_all.map(&.re).max + 500
+      cr_r2 = cr.find! { |r| r.qname == "read2" }
+      c_rs_min = c_r2_all.min_of(&.rs) - 500
+      c_re_max = c_r2_all.max_of(&.re) + 500
       cr_r2.rs.should be >= c_rs_min
       cr_r2.re.should be <= c_re_max
     end

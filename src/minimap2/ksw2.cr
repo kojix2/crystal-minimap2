@@ -22,7 +22,7 @@ module Minimap2
   # Result of a KSW alignment
   class KswExtz
     property max : UInt32 # max score seen (unsigned representation)
-    property zdropped : Bool
+    property? zdropped : Bool
     property max_q : Int32 # query position of max score
     property max_t : Int32 # target position of max score
     property mqe : Int32   # max score reaching query end

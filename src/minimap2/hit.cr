@@ -44,7 +44,7 @@ module Minimap2
     rs_cand = u64_to_i32(a[k].x) + 1 - q_span
     r.rs = rs_cand > 0 ? rs_cand : 0
     r.re = u64_to_i32(a[k + r.cnt - 1].x) + 1
-    if !r.rev || is_qstrand
+    if !r.rev? || is_qstrand
       r.qs = u64_to_i32(a[k].y) + 1 - q_span
       r.qe = u64_to_i32(a[k + r.cnt - 1].y) + 1
     else
@@ -114,9 +114,9 @@ module Minimap2
 
     n.times do |i|
       r = regs[i]
-      if r.inv || r.cnt > 0
+      if r.inv? || r.cnt > 0
         score = (ep = r.p) ? ep.dp_max : r.score
-        score = alt_score(score, alt_diff_frac) if r.is_alt
+        score = alt_score(score, alt_diff_frac) if r.is_alt?
         aux << Mm128.new((score.to_u64 << 32) | r.hash.to_u64, i.to_u64)
       end
     end
@@ -131,7 +131,7 @@ module Minimap2
   end
 
   # Set SAM primary flag; returns number of primary hits.
-  def self.set_sam_pri(regs : Array(MmReg1)) : Int32
+  def self.mark_sam_pri(regs : Array(MmReg1)) : Int32
     n_pri = 0
     regs.each do |r|
       if r.id == r.parent
@@ -147,7 +147,7 @@ module Minimap2
   # Keep id/parent in sync after hits are removed.
   def self.sync_regs(regs : Array(MmReg1)) : Nil
     return if regs.empty?
-    max_id = regs.map(&.id).max
+    max_id = regs.max_of(&.id)
     return if max_id < 0
     tmp = Array(Int32).new(max_id + 1, -1)
     regs.each_with_index { |r, i| tmp[r.id] = i if r.id >= 0 }
@@ -161,7 +161,7 @@ module Minimap2
                    PARENT_UNSET
                  end
     end
-    set_sam_pri(regs)
+    mark_sam_pri(regs)
   end
 
   # Set parent/secondary relationships.
@@ -179,7 +179,6 @@ module Minimap2
     (1...n).each do |i|
       ri = regs[i]
       si = ri.qs; ei = ri.qe
-      n_cov = 0
       uncov = 0
       cov = [] of UInt64
 
@@ -215,13 +214,13 @@ module Minimap2
         if ol.to_f / min - uncov.to_f / max > mask_level && uncov <= mask_len
           ri.parent = rp.parent
           sci = ri.score
-          sci = alt_score(sci, alt_diff_frac) if !rp.is_alt && ri.is_alt
+          sci = alt_score(sci, alt_diff_frac) if !rp.is_alt? && ri.is_alt?
           rp.subsc = [rp.subsc, sci].max
           cnt_sub = ri.cnt >= rp.cnt ? 1 : 0
           if (ep = rp.p) && (ei2 = ri.p)
             if rp.rid != ri.rid || rp.rs != ri.rs || rp.re != ri.re || ol != min
               sci2 = ei2.dp_max
-              sci2 = alt_score(sci2, alt_diff_frac) if !rp.is_alt && ri.is_alt
+              sci2 = alt_score(sci2, alt_diff_frac) if !rp.is_alt? && ri.is_alt?
               ep.dp_max2 = [ep.dp_max2, sci2].max
               cnt_sub = 1 if ep.dp_max - ei2.dp_max <= sub_diff
             end
@@ -252,14 +251,14 @@ module Minimap2
     n.times do |i|
       r = regs[i]
       p = r.parent
-      if p == i || r.inv
+      if p == i || r.inv?
         regs[k] = r; k += 1
       elsif (r.score >= regs[p].score * pri_ratio || r.score + min_diff >= regs[p].score) && n_2nd < best_n
         rp = regs[p]
         unless r.qs == rp.qs && r.qe == rp.qe && r.rid == rp.rid && r.rs == rp.rs && r.re == rp.re
           regs[k] = r; k += 1; n_2nd += 1
         end
-      elsif check_strand && n_2nd < best_n && r.score > min_strand_sc && r.rev != regs[p].rev
+      elsif check_strand && n_2nd < best_n && r.score > min_strand_sc && r.rev? != regs[p].rev?
         r.strand_retained = true
         regs[k] = r; k += 1; n_2nd += 1
       end
@@ -281,7 +280,7 @@ module Minimap2
     n_regs_ref.value.times do |i|
       r = regs[i]
       flt = false
-      if !r.inv && !r.seg_split && r.cnt < opt.min_cnt
+      if !r.inv? && !r.seg_split? && r.cnt < opt.min_cnt
         flt = true
       end
       if ep = r.p
@@ -301,7 +300,7 @@ module Minimap2
     k = 0
     regs.each_with_index do |r, i|
       p = r.parent
-      if !r.strand_retained || p < 0 || p >= regs.size ||
+      if !r.strand_retained? || p < 0 || p >= regs.size ||
          r.div < regs[p].div * 5.0_f32 || r.div < 0.01_f32
         regs[k] = regs[i]; k += 1
       end

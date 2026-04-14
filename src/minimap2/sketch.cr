@@ -15,7 +15,7 @@ module Minimap2
 
   # Complement table for seq_comp_table (used when reversing sequences)
   SEQ_COMP_TABLE = begin
-    t = Array(UInt8).new(256) { |i| i.to_u8 }
+    t = Array(UInt8).new(256, &.to_u8)
     pairs = {
       'A' => 'T', 'T' => 'A', 'C' => 'G', 'G' => 'C',
       'a' => 't', 't' => 'a', 'c' => 'g', 'g' => 'c',

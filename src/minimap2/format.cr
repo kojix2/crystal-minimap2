@@ -103,7 +103,7 @@ module Minimap2
     io.print "\t"; io.print t.l_seq
     io.print "\t"; io.print r.qs
     io.print "\t"; io.print r.qe
-    io.print "\t"; io.print r.rev ? '-' : '+'
+    io.print "\t"; io.print r.rev? ? '-' : '+'
     io.print "\t"; io.print ctg_name
     io.print "\t"; io.print ctg_len
     io.print "\t"; io.print r.rs
@@ -158,9 +158,9 @@ module Minimap2
     mapq = r.mapq.clamp(0_u32, 60_u32)
     flag = 0_u32
 
-    flag |= 0x10_u32 if r.rev          # reverse complement
-    flag |= 0x100_u32 unless r.sam_pri # not primary
-    flag |= 0x800_u32 if r.is_alt      # supplementary
+    flag |= 0x10_u32 if r.rev?          # reverse complement
+    flag |= 0x100_u32 unless r.sam_pri? # not primary
+    flag |= 0x800_u32 if r.is_alt?      # supplementary
 
     io.print t.name; io.print "\t"; io.print flag
     io.print "\t"; io.print ctg_name
@@ -195,7 +195,7 @@ module Minimap2
     io.print "\t"
     # QUAL
     if t.qual
-      if r.rev
+      if r.rev?
         io.print t.qual.try(&.reverse)
       else
         io.print t.qual

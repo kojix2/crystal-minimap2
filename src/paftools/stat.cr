@@ -32,23 +32,23 @@ module Paftools
         lineno += 1; next if line.starts_with?('@')
         t = line.split('\t'); next if t.size < 2
         cigar : String? = nil; is_sam = false; is_rev = false; tname = ""
-        rs = 0; mapq = 0; aqlen = 0; ori_qlen = 0; qs = 0; qe = 0
-        atlen : Int32? = nil; nm : Int32? = nil; nn = 0
+        rs = 0; mapq = 0; ori_qlen = 0; qs = 0; qe = 0
+        nm : Int32? = nil; nn = 0
 
         if t.size > 4 && (t[4] == "+" || t[4] == "-" || t[4] == "*")
           next if t[4] == "*"
           if line.includes?("\ts2:i:")
             n_2nd += 1; next
           end
-          nm = $1.to_i if (line =~ /\tNM:i:(\d+)/)
-          nn = $1.to_i if (line =~ /\tnn:i:(\d+)/)
-          if (m = /\tcg:Z:(\S+)/.match(line))
+          nm = $1.to_i if line =~ /\tNM:i:(\d+)/
+          nn = $1.to_i if line =~ /\tnn:i:(\d+)/
+          if m = /\tcg:Z:(\S+)/.match(line)
             cigar = m[1]
           else
             STDERR.puts "WARNING: no CIGAR at line #{lineno}"; next
           end
-          tname = t[5]; qs = t[2].to_i; qe = t[3].to_i; aqlen = qe - qs
-          is_rev = t[4] == "-"; rs = t[7].to_i; atlen = t[8].to_i - rs
+          tname = t[5]; qs = t[2].to_i; qe = t[3].to_i
+          is_rev = t[4] == "-"; rs = t[7].to_i
           mapq = t[11]?.try(&.to_i) || 0; ori_qlen = t[1].to_i
         else
           flag = t[1].to_i? || next
@@ -56,10 +56,10 @@ module Paftools
           if (flag & 0x100) != 0
             n_2nd += 1; next
           end
-          nm = $1.to_i if (line =~ /\tNM:i:(\d+)/)
-          nn = $1.to_i if (line =~ /\tnn:i:(\d+)/)
+          nm = $1.to_i if line =~ /\tNM:i:(\d+)/
+          nn = $1.to_i if line =~ /\tnn:i:(\d+)/
           cigar = t[5]; tname = t[2]; rs = t[3].to_i - 1; mapq = t[4].to_i
-          aqlen = t[9].size; is_sam = true; is_rev = (flag & 0x10) != 0
+          is_sam = true; is_rev = (flag & 0x10) != 0
         end
 
         n_pri += 1
@@ -95,7 +95,7 @@ module Paftools
           end
         end
 
-        if (nv = nm)
+        if nv = nm
           tmp = nv - n_gap_all - nn
           STDERR.puts "WARNING: NM < gaps at line #{lineno}" if tmp < 0 && nn == 0
           n_sub += [tmp, 0].max

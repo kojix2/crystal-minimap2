@@ -21,124 +21,124 @@ module Minimap2
     show_version = false
     print_help = false
 
-    parser = OptionParser.new do |p|
-      p.summary_width = 12
-      p.banner = "Usage: minimap2 [options] <target.fa>|<target.idx> [query.fa] [...]"
+    parser = OptionParser.new do |opt|
+      opt.summary_width = 12
+      opt.banner = "Usage: minimap2 [options] <target.fa>|<target.idx> [query.fa] [...]"
 
       # ── Preset ──────────────────────────────────────────────────────────────
-      p.on("-x STR", "Preset (map-ont, map-pb, map-hifi, asm5, asm10, asm20, " \
-                     "splice, sr, ava-ont, ava-pb, ...)") do |v|
+      opt.on("-x STR", "Preset (map-ont, map-pb, map-hifi, asm5, asm10, asm20, " \
+                       "splice, sr, ava-ont, ava-pb, ...)") do |v|
         preset = v
       end
 
       # ── Indexing ─────────────────────────────────────────────────────────────
-      p.on("-H", "Use homopolymer-compressed (HPC) k-mers") do
+      opt.on("-H", "Use homopolymer-compressed (HPC) k-mers") do
         io.flag |= I_HPC
       end
-      p.on("-k INT", "K-mer size [#{io.k}]") do |v|
+      opt.on("-k INT", "K-mer size [#{io.k}]") do |v|
         io.k = v.to_i
       end
-      p.on("-w INT", "Minimizer window size [#{io.w}]") do |v|
+      opt.on("-w INT", "Minimizer window size [#{io.w}]") do |v|
         io.w = v.to_i
       end
-      p.on("-I NUM", "Split index for every ~NUM input bases (k/m/g suffix) [8G]") do |v|
+      opt.on("-I NUM", "Split index for every ~NUM input bases (k/m/g suffix) [8G]") do |v|
         io.batch_size = parse_num(v)
       end
-      p.on("-d FILE", "Dump index to FILE") do |v|
+      opt.on("-d FILE", "Dump index to FILE") do |v|
         index_file = v
       end
 
       # ── Mapping ──────────────────────────────────────────────────────────────
-      p.on("-f FLOAT", "Filter top FLOAT fraction of repetitive minimizers [#{mo.mid_occ_frac}]") do |v|
+      opt.on("-f FLOAT", "Filter top FLOAT fraction of repetitive minimizers [#{mo.mid_occ_frac}]") do |v|
         mo.mid_occ_frac = v.to_f32
       end
-      p.on("-g NUM", "Stop chain elongation if gap exceeds NUM bp [#{mo.max_gap}]") do |v|
+      opt.on("-g NUM", "Stop chain elongation if gap exceeds NUM bp [#{mo.max_gap}]") do |v|
         mo.max_gap = parse_num(v).to_i32
       end
-      p.on("-r NUM", "Chaining bandwidth [#{mo.bw}]") do |v|
+      opt.on("-r NUM", "Chaining bandwidth [#{mo.bw}]") do |v|
         parts = v.split(',')
         mo.bw = parts[0].to_i
         mo.bw_long = parts[1]?.try(&.to_i) || mo.bw_long
       end
-      p.on("-n INT", "Minimal number of minimizers on a chain [#{mo.min_cnt}]") do |v|
+      opt.on("-n INT", "Minimal number of minimizers on a chain [#{mo.min_cnt}]") do |v|
         mo.min_cnt = v.to_i
       end
-      p.on("-m INT", "Minimal chaining score [#{mo.min_chain_score}]") do |v|
+      opt.on("-m INT", "Minimal chaining score [#{mo.min_chain_score}]") do |v|
         mo.min_chain_score = v.to_i
       end
-      p.on("-X", "Skip self and dual mappings (all-vs-all mode)") do
+      opt.on("-X", "Skip self and dual mappings (all-vs-all mode)") do
         mo.flag |= F_NO_DUAL | F_NO_DIAG
       end
-      p.on("-p FLOAT", "Min secondary-to-primary score ratio [#{mo.pri_ratio}]") do |v|
+      opt.on("-p FLOAT", "Min secondary-to-primary score ratio [#{mo.pri_ratio}]") do |v|
         mo.pri_ratio = v.to_f32
       end
-      p.on("-N INT", "Retain at most INT secondary alignments [#{mo.best_n}]") do |v|
+      opt.on("-N INT", "Retain at most INT secondary alignments [#{mo.best_n}]") do |v|
         mo.best_n = v.to_i
       end
 
       # ── Alignment ────────────────────────────────────────────────────────────
-      p.on("-A INT", "Match score [#{mo.a}]") do |v|
+      opt.on("-A INT", "Match score [#{mo.a}]") do |v|
         mo.a = v.to_i
       end
-      p.on("-B INT", "Mismatch penalty [#{mo.b}]") do |v|
+      opt.on("-B INT", "Mismatch penalty [#{mo.b}]") do |v|
         mo.b = v.to_i
       end
-      p.on("-O INT", "Gap open penalty; comma-sep for dual-affine [#{mo.q},#{mo.q2}]") do |v|
+      opt.on("-O INT", "Gap open penalty; comma-sep for dual-affine [#{mo.q},#{mo.q2}]") do |v|
         parts = v.split(',')
         mo.q = parts[0].to_i
         mo.q2 = parts[1]?.try(&.to_i) || mo.q
       end
-      p.on("-E INT", "Gap extend penalty; comma-sep for dual-affine [#{mo.e},#{mo.e2}]") do |v|
+      opt.on("-E INT", "Gap extend penalty; comma-sep for dual-affine [#{mo.e},#{mo.e2}]") do |v|
         parts = v.split(',')
         mo.e = parts[0].to_i
         mo.e2 = parts[1]?.try(&.to_i) || mo.e
       end
-      p.on("-z INT", "Z-drop and inversion Z-drop [#{mo.zdrop},#{mo.zdrop_inv}]") do |v|
+      opt.on("-z INT", "Z-drop and inversion Z-drop [#{mo.zdrop},#{mo.zdrop_inv}]") do |v|
         parts = v.split(',')
         mo.zdrop = parts[0].to_i
         mo.zdrop_inv = parts[1]?.try(&.to_i) || mo.zdrop
       end
-      p.on("-s INT", "Minimal peak DP alignment score [#{mo.min_dp_max}]") do |v|
+      opt.on("-s INT", "Minimal peak DP alignment score [#{mo.min_dp_max}]") do |v|
         mo.min_dp_max = v.to_i
       end
 
       # ── Input / Output ───────────────────────────────────────────────────────
-      p.on("-a", "Output in SAM format (PAF by default)") do
+      opt.on("-a", "Output in SAM format (PAF by default)") do
         out_sam = true
         mo.flag |= F_CIGAR
       end
-      p.on("-o FILE", "Output alignments to FILE [stdout]") do |v|
+      opt.on("-o FILE", "Output alignments to FILE [stdout]") do |v|
         out_file = v
       end
-      p.on("-c", "Output CIGAR in PAF") do
+      opt.on("-c", "Output CIGAR in PAF") do
         with_cigar = true
         mo.flag |= F_CIGAR
       end
-      p.on("--cs", "Output cs tag (short form)") do
+      opt.on("--cs", "Output cs tag (short form)") do
         mo.flag |= F_OUT_CS
       end
-      p.on("--eqx", "Write =/X CIGAR operators") do
+      opt.on("--eqx", "Write =/X CIGAR operators") do
         with_eqx = true
         mo.flag |= F_EQX
       end
-      p.on("-t INT", "Number of threads [#{n_threads}]") do |v|
+      opt.on("-t INT", "Number of threads [#{n_threads}]") do |v|
         n_threads = v.to_i
       end
-      p.on("-K NUM", "Mini-batch size for mapping [500M]") do |v|
+      opt.on("-K NUM", "Mini-batch size for mapping [500M]") do |v|
         mo.mini_batch_size = parse_num(v).to_i64
       end
 
       # ── Meta ─────────────────────────────────────────────────────────────────
-      p.on("--version", "Show version and exit") do
+      opt.on("--version", "Show version and exit") do
         show_version = true
       end
-      p.on("-h", "--help", "Show this help") do
+      opt.on("-h", "--help", "Show this help") do
         print_help = true
       end
 
-      p.invalid_option do |flag|
+      opt.invalid_option do |flag|
         STDERR.puts "Error: unknown option #{flag}"
-        STDERR.puts p
+        STDERR.puts opt
         exit 1
       end
     end
@@ -186,7 +186,7 @@ module Minimap2
     end
 
     # ── Open output ──────────────────────────────────────────────────────────
-    out_io : IO = if (fn = out_file)
+    out_io : IO = if fn = out_file
       File.open(fn, "w")
     else
       STDOUT
@@ -195,9 +195,9 @@ module Minimap2
     # ── Build / load index ───────────────────────────────────────────────────
     reader = MmIdxReader.new(target_fn, io)
     indices = [] of MmIdx
-    while (mi = reader.read(n_threads))
+    while mi = reader.read(n_threads)
       mapopt_update(mo, mi)
-      if (idx_fn = index_file)
+      if idx_fn = index_file
         File.open(idx_fn, "wb") { |f| mi.dump(f) }
       end
       indices << mi
@@ -249,10 +249,10 @@ module Minimap2
         done_ch = Channel(Nil).new(1)
 
         seqs.each_with_index do |t, si|
-          indices.each_with_index do |mi, ii|
+          indices.each_with_index do |idx, ii|
             pair_idx = si * indices.size + ii
             map_ctx.spawn do
-              results[pair_idx] = Minimap2.map(mi, t.l_seq, t.seq, mo, t.name)
+              results[pair_idx] = Minimap2.map(idx, t.l_seq, t.seq, mo, t.name)
               done_ch.send(nil) if pending.sub(1, :sequentially_consistent) == 1
             end
           end
@@ -262,13 +262,13 @@ module Minimap2
 
         # Write results in original input order (deterministic output).
         seqs.each_with_index do |t, si|
-          indices.each_with_index do |mi, ii|
+          indices.each_with_index do |idx, ii|
             regs = results[si * indices.size + ii] || [] of MmReg1
             regs.each do |r|
               if out_sam
-                write_sam(out_io, mi, t, r, regs.size, regs, mo.flag)
+                write_sam(out_io, idx, t, r, regs.size, regs, mo.flag)
               else
-                write_paf(out_io, mi, t, r, mo.flag)
+                write_paf(out_io, idx, t, r, mo.flag)
               end
             end
             write_sam_unmapped(out_io, t) if out_sam && regs.empty?

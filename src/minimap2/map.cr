@@ -100,7 +100,7 @@ module Minimap2
   private def self.collect_seed_hits(opt : MmMapOpt, max_occ : Int32, mi : MmIdx,
                                      qname : String?, mv : Array(Mm128), qlen : Int32,
                                      use_heap : Bool) : {Array(Mm128), Int32, Array(UInt64)}
-    seeds, n_a, rep_len, mini_pos = collect_matches(qlen, max_occ, opt.max_max_occ, opt.occ_dist, mi, mv)
+    seeds, _, rep_len, mini_pos = collect_matches(qlen, max_occ, opt.max_max_occ, opt.occ_dist, mi, mv)
 
     a = [] of Mm128
 
@@ -134,7 +134,7 @@ module Minimap2
 
         # Apply segment ID and flags
         p = Mm128.new(p.x, p.y | (q.seg_id.to_u64 << SEED_SEG_SHIFT))
-        p = Mm128.new(p.x, p.y | SEED_TANDEM) if q.is_tandem
+        p = Mm128.new(p.x, p.y | SEED_TANDEM) if q.is_tandem?
         p = Mm128.new(p.x, p.y | SEED_SELF) if is_self
 
         a << p
@@ -280,7 +280,7 @@ module Minimap2
         select_sub(opt.pri_ratio, mi.k * 2, opt.best_n, false, 0,
           pointerof(n_ref_ptr), regs0)
         n_ref = n_ref_ptr
-        set_sam_pri(regs0)
+        mark_sam_pri(regs0)
       end
       set_mapq2(regs0, n_ref, opt.min_chain_score, opt.a, rep_len, is_sr, is_splice)
       n_regs_arr[0] = n_ref
@@ -317,7 +317,7 @@ module Minimap2
     n_regs = Array(Int32).new(n_segs, 0)
     regs = Array(Array(MmReg1)).new(n_segs) { [] of MmReg1 }
     map_frag_core(mi, n_segs, qlens, seqs, n_regs, regs, opt, qname)
-    n_segs.times.map { |i| regs[i].first(n_regs[i]) }.to_a
+    Array.new(n_segs) { |i| regs[i].first(n_regs[i]) }
   end
 
   # ---------------------------------------------------------------------------
@@ -351,12 +351,12 @@ module Minimap2
       Minimap2.set_opt(preset, iopt, mopt) if preset
       reader = MmIdxReader.new(fn, iopt)
       indices = [] of MmIdx
-      while (mi = reader.read(n_threads))
+      while mi = reader.read(n_threads)
         Minimap2.mapopt_update(mopt, mi)
         indices << mi
       end
       reader.close
-      return nil if indices.empty?
+      return if indices.empty?
       new(iopt, mopt, indices)
     end
 

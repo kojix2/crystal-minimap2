@@ -72,17 +72,17 @@ module Minimap2
     # Packed bitfields (see accessor methods below)
     property mapq : UInt32
     property split : UInt32
-    property rev : Bool
-    property inv : Bool
-    property sam_pri : Bool
-    property proper_frag : Bool
-    property pe_thru : Bool
-    property seg_split : Bool
+    property? rev : Bool
+    property? inv : Bool
+    property? sam_pri : Bool
+    property? proper_frag : Bool
+    property? pe_thru : Bool
+    property? seg_split : Bool
     property seg_id : UInt32
-    property split_inv : Bool
-    property is_alt : Bool
-    property strand_retained : Bool
-    property is_spliced : Bool
+    property? split_inv : Bool
+    property? is_alt : Bool
+    property? strand_retained : Bool
+    property? is_spliced : Bool
 
     property hash : UInt32
     property div : Float32
@@ -249,9 +249,9 @@ module Minimap2
     property n : Int32       # number of reference hits
     property q_pos : UInt32  # query position (pos<<1|strand)
     property q_span : UInt32 # k-mer span on query
-    property flt : Bool      # filtered (too frequent)
+    property? flt : Bool     # filtered (too frequent)
     property seg_id : UInt32 # segment id (for paired-end)
-    property is_tandem : Bool
+    property? is_tandem : Bool
 
     # reference hits: array of (rid<<32|pos) packed into UInt64
     property cr : Array(UInt64)

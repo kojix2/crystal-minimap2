@@ -16,12 +16,12 @@ module Minimap2
 
   # Append a CIGAR run to a MmExtra, merging with the previous operation if same.
   private def self.append_cigar(ep : MmExtra, cigar : Array(UInt32)) : Nil
-    cigar.each do |c|
-      op = c & 0xf_u32
-      len = c >> 4
+    cigar.each do |entry|
+      op = entry & 0xf_u32
+      len = entry >> 4
       next if len == 0
       if ep.cigar.empty? || (ep.cigar.last & 0xf_u32) != op
-        ep.cigar << c
+        ep.cigar << entry
       else
         ep.cigar[-1] = ep.cigar[-1] &+ (len << 4)
       end
@@ -56,7 +56,7 @@ module Minimap2
 
   # Build reverse complement of a 4-bit encoded sequence.
   def self.rev_comp(seq : Array(UInt8)) : Array(UInt8)
-    seq.reverse.map { |c| comp4(c) }
+    seq.reverse.map { |byte| comp4(byte) }
   end
 
   # Core alignment between a pair of query and target windows.
@@ -94,15 +94,15 @@ module Minimap2
     qoff = 0; toff = 0
     s = 0.0; max_s = 0.0
 
-    ep.cigar.each do |c|
-      op = (c & 0xf).to_i32
-      len = (c >> 4).to_i32
+    ep.cigar.each do |entry|
+      op = (entry & 0xf).to_i32
+      len = (entry >> 4).to_i32
       case op
       when CIGAR_MATCH
         n_ambi = 0; n_diff = 0
-        len.times do |l|
-          cq = qseq[qoff + l].to_i32
-          ct = tseq[toff + l].to_i32
+        len.times do |idx|
+          cq = qseq[qoff + idx].to_i32
+          ct = tseq[toff + idx].to_i32
           if ct > 3 || cq > 3
             n_ambi += 1
           elsif ct != cq
@@ -117,12 +117,12 @@ module Minimap2
         ep.n_ambi += n_ambi.to_u32
         qoff += len; toff += len
       when CIGAR_INS
-        len.times { |l| n_ambi = qseq[qoff + l] > 3 ? 1 : 0; ep.n_ambi += n_ambi.to_u32; r.blen += 1 - n_ambi }
+        len.times { |idx| n_ambi = qseq[qoff + idx] > 3 ? 1 : 0; ep.n_ambi += n_ambi.to_u32; r.blen += 1 - n_ambi }
         s -= q + e
         s = 0.0 if s < 0.0
         qoff += len
       when CIGAR_DEL
-        len.times { |l| n_ambi = tseq[toff + l] > 3 ? 1 : 0; ep.n_ambi += n_ambi.to_u32; r.blen += 1 - n_ambi }
+        len.times { |idx| n_ambi = tseq[toff + idx] > 3 ? 1 : 0; ep.n_ambi += n_ambi.to_u32; r.blen += 1 - n_ambi }
         s -= q + e
         s = 0.0 if s < 0.0
         toff += len
@@ -138,9 +138,9 @@ module Minimap2
     if is_eqx
       new_cigar = [] of UInt32
       qoff2 = 0; toff2 = 0
-      ep.cigar.each do |c|
-        op = (c & 0xf).to_i32
-        len = (c >> 4).to_i32
+      ep.cigar.each do |entry|
+        op = (entry & 0xf).to_i32
+        len = (entry >> 4).to_i32
         if op == CIGAR_MATCH
           rem = len
           while rem > 0
@@ -162,7 +162,7 @@ module Minimap2
             end
           end
         else
-          new_cigar << c
+          new_cigar << entry
           qoff2 += len if op == CIGAR_INS
           toff2 += len if op == CIGAR_DEL || op == CIGAR_N_SKIP
         end
@@ -176,7 +176,7 @@ module Minimap2
   private def self.align_one_reg(opt : MmMapOpt, mi : MmIdx,
                                  qlen : Int32, qseq_fwd : Array(UInt8),
                                  r : MmReg1, a : Array(Mm128)) : Nil
-    is_rev = r.rev
+    is_rev = r.rev?
     rid = r.rid
     qs = r.qs; qe = r.qe; rs = r.rs; re = r.re
     qlen_aln = qe - qs; tlen_aln = re - rs
@@ -205,7 +205,7 @@ module Minimap2
     ez = align_pair(opt, qlen_aln, qseq, tlen_aln, tseq, mat,
       bw, opt.end_bonus, zdrop, ksw_flag)
 
-    return if ez.zdropped || ez.n_cigar == 0
+    return if ez.zdropped? || ez.n_cigar == 0
 
     # Create MmExtra and fill it
     ep = MmExtra.new
@@ -234,8 +234,6 @@ module Minimap2
       qseq_fwd = qstr
     end
 
-    mat = gen_simple_mat(5, opt.a, opt.b, opt.sc_ambi, opt.transition)
-
     n_regs = n_regs_ref.value
     n_regs.times do |i|
       r = regs[i]
@@ -253,9 +251,9 @@ module Minimap2
   def self.est_err(mi : MmIdx, qlen : Int32, regs : Array(MmReg1),
                    a : Array(Mm128), n_mini_pos : Int32, mini_pos : Array(UInt64)) : Nil
     # Simplified: compute div from mlen/blen
-    regs.each do |r|
-      next if r.cnt <= 0 || r.blen <= 0
-      r.div = r.mlen >= r.blen ? 0.0_f32 : (r.blen - r.mlen).to_f32 / r.blen.to_f32
+    regs.each do |reg|
+      next if reg.cnt <= 0 || reg.blen <= 0
+      reg.div = reg.mlen >= reg.blen ? 0.0_f32 : (reg.blen - reg.mlen).to_f32 / reg.blen.to_f32
     end
   end
 end

@@ -28,8 +28,8 @@ module Minimap2
 
     # Compact (remove zeroed entries)
     j = 0
-    mv.each_with_index do |m, i|
-      mv[j] = mv[i]
+    mv.each_with_index do |m, k|
+      mv[j] = mv[k]
       j += 1 if m.x != 0
     end
     mv.delete_at(j, mv.size - (j)) if mv.size > (j)
@@ -97,16 +97,16 @@ module Minimap2
             (st...en).each do |j|
               # invert: flag those NOT chosen
               if chosen.includes?(j)
-                seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, false, seeds[j].is_tandem)
+                seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, false, seeds[j].is_tandem?)
               else
-                seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, true, seeds[j].is_tandem)
+                seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, true, seeds[j].is_tandem?)
               end
             end
           end
           # Filter anything exceeding max_max_occ
           (st...en).each do |j|
             if seeds[j].n > max_max_occ
-              seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, true, seeds[j].is_tandem)
+              seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, true, seeds[j].is_tandem?)
             end
           end
         end
@@ -133,7 +133,7 @@ module Minimap2
     else
       seeds.each_with_index do |s, i|
         if s.n > max_occ
-          seeds[i] = MmSeed.new(s.n, s.q_pos, s.q_span, s.cr, s.seg_id, true, s.is_tandem)
+          seeds[i] = MmSeed.new(s.n, s.q_pos, s.q_span, s.cr, s.seg_id, true, s.is_tandem?)
         end
       end
     end
@@ -147,9 +147,9 @@ module Minimap2
 
     seeds.each do |q|
       if (@@dbg_flag & DBG_SEED_FREQ) != 0
-        STDERR.printf("SF\t%d\t%d\t%d\n", q.q_pos >> 1, q.n, q.flt ? 1 : 0)
+        STDERR.printf("SF\t%d\t%d\t%d\n", q.q_pos >> 1, q.n, q.flt? ? 1 : 0)
       end
-      if q.flt
+      if q.flt?
         en = (q.q_pos >> 1) + 1
         st = en - q.q_span.to_i32
         if st > rep_en

@@ -17,7 +17,6 @@ module Paftools
     case type
     when '=', ':'
       l = type == '=' ? seq.size : seq.to_i
-      actual = type == '=' ? seq : seq # for ':' we don't have bases, use count
       if type == '='
         sref << seq; sqry << seq; smid << "|" * l
       else
@@ -90,7 +89,7 @@ module Paftools
           end
           score = (m = /\tAS:i:(\d+)/.match(line)) ? m[1] : "0"
           buf = ["cigar:", t[0], t[2], t[3], t[4], t[5], t[7], t[8], "+", score]
-          cg.scan(/(\d+)([MIDNSHP=X])/) { |m| buf << m[2]; buf << m[1] }
+          cg.scan(/(\d+)([MIDNSHP=X])/) { |cm| buf << cm[2]; buf << cm[1] }
           puts buf.join(" ")
         when "maf"
           cs = (m = /\tcs:Z:(\S+)/.match(line)) ? m[1] : nil
@@ -99,8 +98,8 @@ module Paftools
           end
           sref = String::Builder.new; sqry = String::Builder.new
           smid = String::Builder.new; elen = [0, 0]
-          cs.scan(/([:=*+\-])(\S+)/) do |m|
-            update_aln(sref, sqry, smid, m[1][0], m[2], elen)
+          cs.scan(/([:=*+\-])(\S+)/) do |cm|
+            update_aln(sref, sqry, smid, cm[1][0], cm[2], elen)
           end
           score = (m = /\tAS:i:(\d+)/.match(line)) ? m[1].to_i : 0
           len = [t[0].size, t[5].size].max
@@ -117,11 +116,11 @@ module Paftools
           end
           # count stats
           n_mm = 0; n_oi = 0; n_od = 0; n_ei = 0; n_ed = 0
-          cs.scan(/([:=*+\-])(\S+)/) do |m|
-            case m[1][0]
+          cs.scan(/([:=*+\-])(\S+)/) do |cm|
+            case cm[1][0]
             when '*'; n_mm += 1
-            when '+'; n_oi += 1; n_ei += m[2].size
-            when '-'; n_od += 1; n_ed += m[2].size
+            when '+'; n_oi += 1; n_ei += cm[2].size
+            when '-'; n_od += 1; n_ed += cm[2].size
             end
           end
           bare = line.gsub(/\tc[sg]:Z:\S+/, "")

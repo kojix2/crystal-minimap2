@@ -66,7 +66,7 @@ module Minimap2
     q_span = ((aj.y >> 32) & 0xff).to_i32
     sc = q_span < dg ? q_span : dg
     width.value = dd
-    exact.try { |e| e.value = (dd == 0 && dg <= q_span) }
+    exact.try(&.value=(((dd == 0) && dg <= q_span)))
 
     if dd != 0 || dq > q_span
       lin_pen = chn_pen_gap * dd.to_f32 + chn_pen_skip * dg.to_f32
@@ -429,7 +429,7 @@ module Minimap2
       lo_y = u64_to_i32(ai.y) - max_dist
       hi_y = u64_to_i32(ai.y)
 
-      if (q = rmq_query(root, lo_y, hi_y))
+      if q = rmq_query(root, lo_y, hi_y)
         j = q.i
         w = 0
         sc = f[j] + comput_sc_simple(ai, a[j], chn_pen_gap, chn_pen_skip, nil, pointerof(w))
