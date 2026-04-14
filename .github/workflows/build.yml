@@ -83,8 +83,7 @@ jobs:
           mkdir -p bin
           docker run --rm -v "$(pwd):/workspace" -w /workspace crystallang/crystal:latest-alpine \
             sh -lc '
-              crystal build -Dpreview_mt -Dexecution_context --release --static src/main.cr -o bin/minimap2 &&
-              crystal build -Dpreview_mt -Dexecution_context --release --static src/paftools_main.cr -o bin/paftools &&
+              make FLAGS="-Dpreview_mt -Dexecution_context --release --static" &&
               chmod +x bin/minimap2 bin/paftools
             '
           ldd bin/minimap2 || echo "Static binary (no dynamic dependencies)"
@@ -105,7 +104,7 @@ jobs:
         if: startsWith(matrix.target, 'x86_64-apple-darwin') || startsWith(matrix.target, 'aarch64-apple-darwin')
         shell: bash
         run: |
-          make
+          make FLAGS="-Dpreview_mt -Dexecution_context --release"
           chmod +x bin/minimap2 bin/paftools
           otool -L bin/minimap2
           otool -L bin/paftools
@@ -143,8 +142,7 @@ jobs:
         shell: msys2 {0}
         run: |
           mkdir -p bin
-          crystal build -Dpreview_mt -Dexecution_context --release src/main.cr -o bin/minimap2.exe
-          crystal build -Dpreview_mt -Dexecution_context --release src/paftools_main.cr -o bin/paftools.exe
+          make FLAGS="-Dpreview_mt -Dexecution_context --release"
           file bin/minimap2.exe
           file bin/paftools.exe
           bin/minimap2.exe --help
