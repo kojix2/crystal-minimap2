@@ -72,7 +72,11 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          make -C minimap2
+          if [[ "${{ matrix.target }}" == "aarch64-apple-darwin" ]]; then
+            make -C minimap2 arm_neon=1 aarch64=1
+          else
+            make -C minimap2
+          fi
           ./minimap2/minimap2 --version
 
       - name: Run specs against reference minimap2

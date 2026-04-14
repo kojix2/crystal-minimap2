@@ -1,8 +1,15 @@
 require "spec"
 
 # Run the pre-built paftools binary and capture stdout + stderr.
-PAFTOOLS_BIN = File.expand_path("../bin/paftools", __DIR__)
-FIXTURES     = File.expand_path("fixtures", __DIR__)
+PAFTOOLS_BIN = ENV["PAFTOOLS_BIN"]? || begin
+  exe = {% if flag?(:win32) %}
+          "paftools.exe"
+        {% else %}
+          "paftools"
+        {% end %}
+  File.expand_path("../bin/#{exe}", __DIR__)
+end
+FIXTURES = File.expand_path("fixtures", __DIR__)
 
 private def run_paftools(*args) : {Int32, String, String}
   out_io = IO::Memory.new
