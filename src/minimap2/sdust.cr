@@ -8,8 +8,8 @@ module Minimap2
   # ---------------------------------------------------------------------------
 
   private SD_WLEN = 3
-  private SD_WTOT = 1 << (SD_WLEN * 2)  # 64
-  private SD_WMSK = SD_WTOT - 1          # 63
+  private SD_WTOT = 1 << (SD_WLEN * 2) # 64
+  private SD_WMSK = SD_WTOT - 1        # 63
 
   # A "perfect interval" found during the DUST scan.
   private record PerfIntv, start : Int32, finish : Int32, r : Int32, l : Int32
@@ -18,12 +18,12 @@ module Minimap2
   # Reusable per-call buffer
   # ---------------------------------------------------------------------------
   class SdustBuf
-    property w : Array(Int32)    # sliding window queue (acts as deque)
-    property big_p : Array(PerfIntv)  # list of perfect intervals
-    property res : Array(UInt64)  # masked regions result
+    property w : Array(Int32)        # sliding window queue (acts as deque)
+    property big_p : Array(PerfIntv) # list of perfect intervals
+    property res : Array(UInt64)     # masked regions result
 
     def initialize
-      @w   = [] of Int32
+      @w = [] of Int32
       @big_p = [] of PerfIntv
       @res = [] of UInt64
     end
@@ -41,26 +41,26 @@ module Minimap2
   # ---------------------------------------------------------------------------
   private def self.sdust_shift_window(
     t : Int32, w : Array(Int32), big_t : Int32, big_w : Int32,
-    l : Int32, rw : Int32, rv : Int32, cw : Array(Int32), cv : Array(Int32)
+    l : Int32, rw : Int32, rv : Int32, cw : Array(Int32), cv : Array(Int32),
   ) : {Int32, Int32, Int32}
     if w.size >= big_w - SD_WLEN + 1
-      s = w.shift  # pop from front
+      s = w.shift # pop from front
       rw -= (cw[s] -= 1)
-      if l > w.size + 1   # +1 because we already shifted
+      if l > w.size + 1 # +1 because we already shifted
         l -= 1
         rv -= (cv[s] -= 1)
       end
     end
     w << t
     l += 1
-    rw += (cw[t] += 1) - 1  # rw += old cw[t] (before increment)
+    rw += (cw[t] += 1) - 1 # rw += old cw[t] (before increment)
     rv += (cv[t] += 1) - 1
     # ensure cv[t]*10 <= T*2 (T*2 because we're using integer arithmetic)
     while cv[t] * 10 > big_t * 2
       s = w[w.size - l]
       rv -= (cv[s] -= 1)
       l -= 1
-      break if s == t  # stop once we've found t in the L-window
+      break if s == t # stop once we've found t in the L-window
     end
     {l, rw, rv}
   end
@@ -97,17 +97,17 @@ module Minimap2
   # ---------------------------------------------------------------------------
   private def self.sdust_find_perfect(
     big_p : Array(PerfIntv), w : Array(Int32),
-    big_t : Int32, start : Int32, big_l : Int32, rv : Int32, cv : Array(Int32)
+    big_t : Int32, start : Int32, big_l : Int32, rv : Int32, cv : Array(Int32),
   ) : Nil
-    c  = cv.dup  # local copy of the cv counts
-    r  = rv
+    c = cv.dup # local copy of the cv counts
+    r = rv
     max_r = 0
     max_l = 0
     # Scan from oldest to newest in L-window (in reverse order in the array)
     i = w.size - big_l - 1
     while i >= 0
-      t     = w[i]
-      r    += c[t]
+      t = w[i]
+      r += c[t]
       c[t] += 1
       new_r = r
       new_l = w.size - i - 1
@@ -122,10 +122,10 @@ module Minimap2
         if max_r == 0 || new_r * max_l >= max_r * new_l
           max_r = new_r; max_l = new_l
           big_p.insert(j, PerfIntv.new(
-            start:  i + start,
+            start: i + start,
             finish: w.size + (SD_WLEN - 1) + start,
-            r:      new_r,
-            l:      new_l
+            r: new_r,
+            l: new_l
           ))
         end
       end
@@ -142,11 +142,11 @@ module Minimap2
     buf.reset
     cw = Array(Int32).new(SD_WTOT, 0)
     cv = Array(Int32).new(SD_WTOT, 0)
-    rv  = 0
-    rw  = 0
+    rv = 0
+    rw = 0
     big_l = 0
-    t     = 0
-    l     = 0  # length of current run of unambiguous bases
+    t = 0
+    l = 0 # length of current run of unambiguous bases
 
     i = 0
     while i <= l_seq

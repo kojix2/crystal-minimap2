@@ -14,7 +14,7 @@ module Minimap2
 
     # Mark overly frequent minimizers (zero out their x)
     st = 0
-    i  = 1
+    i = 1
     while i <= a.size
       if i == a.size || a[i].x != a[st].x
         cnt = i - st
@@ -32,7 +32,7 @@ module Minimap2
       mv[j] = mv[i]
       j += 1 if m.x != 0
     end
-    mv.delete_at(j,     mv.size - (j)) if     mv.size > (j)
+    mv.delete_at(j, mv.size - (j)) if mv.size > (j)
   end
 
   # Collect all seed matches between query minimizers and the index.
@@ -41,17 +41,17 @@ module Minimap2
   def self.seed_collect_all(mi : MmIdx, mv : Array(Mm128)) : Array(MmSeed)
     seeds = [] of MmSeed
     mv.each_with_index do |p, i|
-      q_pos  = p.y.to_u32
+      q_pos = p.y.to_u32
       q_span = (p.x & 0xff).to_u32
       cr = mi.get(p.x >> 8)
       next unless cr
       next if cr.empty?
       seed = MmSeed.new(
-        n:       cr.size,
-        q_pos:   q_pos,
-        q_span:  q_span,
-        cr:      cr.dup,
-        seg_id:  (p.y >> 32).to_u32
+        n: cr.size,
+        q_pos: q_pos,
+        q_span: q_span,
+        cr: cr.dup,
+        seg_id: (p.y >> 32).to_u32
       )
       # mark tandem if adjacent minimizers share the same hash
       if i > 0 && p.x >> 8 == mv[i - 1].x >> 8
@@ -78,7 +78,7 @@ module Minimap2
     return if n_hi == 0
 
     last0 = -1
-    i     = 0
+    i = 0
     while i <= n
       if i == n || seeds[i].n <= max_occ
         if i - last0 > 1
@@ -124,7 +124,7 @@ module Minimap2
   #   mini_pos — (q_span<<32 | q_pos) for each non-filtered seed
   def self.collect_matches(
     qlen : Int32, max_occ : Int32, max_max_occ : Int32, dist : Int32,
-    mi : MmIdx, mv : Array(Mm128)
+    mi : MmIdx, mv : Array(Mm128),
   ) : {Array(MmSeed), Int64, Int32, Array(UInt64)}
     seeds = seed_collect_all(mi, mv)
 
@@ -138,12 +138,12 @@ module Minimap2
       end
     end
 
-    n_a      = 0_i64
-    rep_len  = 0_i32
-    rep_st   = 0_i32
-    rep_en   = 0_i32
+    n_a = 0_i64
+    rep_len = 0_i32
+    rep_st = 0_i32
+    rep_en = 0_i32
     mini_pos = [] of UInt64
-    out      = [] of MmSeed
+    out = [] of MmSeed
 
     seeds.each do |q|
       if (@@dbg_flag & DBG_SEED_FREQ) != 0

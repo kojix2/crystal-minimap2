@@ -23,7 +23,7 @@ describe Minimap2 do
       mo = Minimap2::MmMapOpt.new
       Minimap2.mapopt_init(mo)
       mo.a.should be > 0
-      mo.b.should be > 0  # mismatch penalty magnitude (used as positive, negated in matrix)
+      mo.b.should be > 0 # mismatch penalty magnitude (used as positive, negated in matrix)
       mo.min_cnt.should be > 0
     end
 
@@ -69,7 +69,7 @@ describe Minimap2 do
     end
 
     it "produces no minimizers for a short sequence" do
-      seq = "ACGT"  # shorter than k=15
+      seq = "ACGT" # shorter than k=15
       mv = [] of Minimap2::Mm128
       Minimap2.mm_sketch(seq, seq.size, w: 5, k: 15, rid: 0_u32, is_hpc: false, p: mv)
       mv.should be_empty
@@ -125,15 +125,15 @@ describe Minimap2 do
 
     it "rev_comp reverses and complements" do
       # ACGT encodes as [0,1,2,3]. RevComp should give [0,1,2,3] (ACGT is palindrome)
-      enc  = Minimap2.encode_seq("ACGT")
-      rc   = Minimap2.rev_comp(enc)
-      rc.should eq([0_u8, 1_u8, 2_u8, 3_u8])  # ACGT is its own revcomp
+      enc = Minimap2.encode_seq("ACGT")
+      rc = Minimap2.rev_comp(enc)
+      rc.should eq([0_u8, 1_u8, 2_u8, 3_u8]) # ACGT is its own revcomp
     end
 
     it "rev_comp of AAAA gives TTTT" do
       # A=0, T=3
       enc = Minimap2.encode_seq("AAAA")
-      rc  = Minimap2.rev_comp(enc)
+      rc = Minimap2.rev_comp(enc)
       rc.should eq([3_u8, 3_u8, 3_u8, 3_u8])
     end
   end
@@ -169,9 +169,9 @@ describe Minimap2 do
     end
 
     it "score is higher for perfect match than mismatched" do
-      q   = Minimap2.encode_seq("ACGTACGT")
-      t1  = Minimap2.encode_seq("ACGTACGT")
-      t2  = Minimap2.encode_seq("TTTTTTTT")
+      q = Minimap2.encode_seq("ACGTACGT")
+      t1 = Minimap2.encode_seq("ACGTACGT")
+      t2 = Minimap2.encode_seq("TTTTTTTT")
       mat = Minimap2.ksw_gen_simple_mat(5, 2, 4, 1)
       ez1 = Minimap2.ksw_extz2(q.size, q, t1.size, t1, 5, mat, 4, 2, -1, -1, 0, 0)
       ez2 = Minimap2.ksw_extz2(q.size, q, t2.size, t2, 5, mat, 4, 2, -1, -1, 0, 0)
@@ -183,7 +183,7 @@ describe Minimap2 do
   # Index building and lookup
   # ---------------------------------------------------------------------------
   describe "MmIdx" do
-    ref_seq  = "ACGTACGTACGTACGTACGTACGTACGTACGTACGT"
+    ref_seq = "ACGTACGTACGTACGTACGTACGTACGTACGTACGT"
     ref_name = "chr1"
 
     it "can be built from strings" do
@@ -224,8 +224,8 @@ describe Minimap2 do
   # End-to-end: Aligner
   # ---------------------------------------------------------------------------
   describe "Aligner" do
-    ref  = "ACGT" * 50
-    qry  = "ACGT" * 20
+    ref = "ACGT" * 50
+    qry = "ACGT" * 20
 
     it "can be constructed from strings" do
       aln = Minimap2::Aligner.from_strings([ref], ["ref"], "map-ont")
@@ -234,16 +234,16 @@ describe Minimap2 do
     end
 
     it "map returns an array" do
-      aln  = Minimap2::Aligner.from_strings([ref], ["ref"], "map-ont")
+      aln = Minimap2::Aligner.from_strings([ref], ["ref"], "map-ont")
       hits = aln.map(qry, "query")
       hits.should be_a(Array(Minimap2::MmReg1))
     end
 
     it "maps query to correct reference strand" do
-      aln  = Minimap2::Aligner.from_strings([ref], ["ref"], "map-ont")
+      aln = Minimap2::Aligner.from_strings([ref], ["ref"], "map-ont")
       hits = aln.map(qry, "query")
       if !hits.empty?
-        hits.first.rev.should be_false  # query is same strand
+        hits.first.rev.should be_false # query is same strand
       end
     end
   end

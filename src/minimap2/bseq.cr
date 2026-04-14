@@ -5,16 +5,16 @@ module Minimap2
   # Biological sequence record — mirrors mm_bseq1_t in bseq.h
   # ---------------------------------------------------------------------------
   class BSeq1
-    property name    : String
-    property seq     : String
-    property qual    : String?
+    property name : String
+    property seq : String
+    property qual : String?
     property comment : String?
-    property l_seq   : Int32
-    property rid     : UInt32   # reference id assigned during index construction
+    property l_seq : Int32
+    property rid : UInt32 # reference id assigned during index construction
 
     def initialize(@name, @seq, @qual = nil, @comment = nil)
       @l_seq = @seq.size
-      @rid   = 0_u32
+      @rid = 0_u32
     end
 
     # Convert U/u → T/t in-place (FASTA convention)
@@ -30,8 +30,8 @@ module Minimap2
   class BSeqFile
     CHECK_PAIR_THRES = 1_000_000
 
-    @io        : IO
-    @pending   : BSeq1?   # stashed record that overflowed the last chunk
+    @io : IO
+    @pending : BSeq1? # stashed record that overflowed the last chunk
 
     def self.open(fn : String) : BSeqFile
       io : IO
@@ -119,7 +119,7 @@ module Minimap2
         name, comment = split_header(header, with_comment)
         seq_line = @io.gets(chomp: true) || ""
         seq = seq_line.strip
-        @io.gets(chomp: true)  # consume '+' line
+        @io.gets(chomp: true) # consume '+' line
         qual_line = @io.gets(chomp: true) || ""
         qual = qual_line.strip
         STDERR.puts "[WARNING] empty sequence name in the input." if name.empty?
@@ -164,7 +164,7 @@ module Minimap2
     private def split_header(header : String, want_comment : Bool) : {String, String?}
       i = header.each_char.with_index.find { |c, _| c == ' ' || c == '\t' }.try(&.[1])
       if i
-        name    = header[0...i]
+        name = header[0...i]
         comment = want_comment ? header[(i + 1)..].lstrip : nil
         {name, comment}
       else
@@ -177,8 +177,8 @@ module Minimap2
       return false if a.empty? || b.empty?
       la = a.size; lb = b.size
       # strip trailing /1 or /2
-      ea = (la >= 2 && a[la-2] == '/' && (a[la-1] == '1' || a[la-1] == '2')) ? la - 2 : la
-      eb = (lb >= 2 && b[lb-2] == '/' && (b[lb-1] == '1' || b[lb-1] == '2')) ? lb - 2 : lb
+      ea = (la >= 2 && a[la - 2] == '/' && (a[la - 1] == '1' || a[la - 1] == '2')) ? la - 2 : la
+      eb = (lb >= 2 && b[lb - 2] == '/' && (b[lb - 1] == '1' || b[lb - 1] == '2')) ? lb - 2 : lb
       return false if ea != eb
       a[0...ea] == b[0...eb]
     end
@@ -186,7 +186,7 @@ module Minimap2
 
   # Multi-file fragment reader (mirrors mm_bseq_read_frag2)
   def self.bseq_read_frag(fps : Array(BSeqFile), chunk_size : Int64,
-                           with_qual : Bool = false, with_comment : Bool = false) : Array(BSeq1)
+                          with_qual : Bool = false, with_comment : Bool = false) : Array(BSeq1)
     a = [] of BSeq1
     size = 0_i64
 
@@ -198,7 +198,7 @@ module Minimap2
         end
         break
       end
-      seqs.each { |s| a << s.not_nil!; size += s.not_nil!.l_seq }
+      seqs.each { |s| next unless s; a << s; size += s.l_seq }
       break if size >= chunk_size
     end
     a

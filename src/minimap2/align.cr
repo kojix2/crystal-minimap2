@@ -17,7 +17,7 @@ module Minimap2
   # Append a CIGAR run to a MmExtra, merging with the previous operation if same.
   private def self.append_cigar(ep : MmExtra, cigar : Array(UInt32)) : Nil
     cigar.each do |c|
-      op  = c & 0xf_u32
+      op = c & 0xf_u32
       len = c >> 4
       next if len == 0
       if ep.cigar.empty? || (ep.cigar.last & 0xf_u32) != op
@@ -62,9 +62,9 @@ module Minimap2
   # Core alignment between a pair of query and target windows.
   # Fills in r.p with CIGAR and dp scores.
   private def self.align_pair(opt : MmMapOpt, qlen : Int32, qseq : Array(UInt8),
-                               tlen : Int32, tseq : Array(UInt8),
-                               mat : Array(Int8), w : Int32,
-                               end_bonus : Int32, zdrop : Int32, flag : Int32) : KswExtz
+                              tlen : Int32, tseq : Array(UInt8),
+                              mat : Array(Int8), w : Int32,
+                              end_bonus : Int32, zdrop : Int32, flag : Int32) : KswExtz
     if opt.max_sw_mat > 0 && tlen.to_i64 * qlen > opt.max_sw_mat
       ez = KswExtz.new
       ez.zdropped = true
@@ -73,20 +73,20 @@ module Minimap2
 
     if (opt.flag & F_SPLICE) != 0
       ksw_exts2(qlen, qseq, tlen, tseq, 5, mat,
-                opt.q, opt.e, opt.q2, opt.noncan,
-                zdrop, end_bonus, opt.junc_bonus, opt.junc_pen, flag)
+        opt.q, opt.e, opt.q2, opt.noncan,
+        zdrop, end_bonus, opt.junc_bonus, opt.junc_pen, flag)
     elsif opt.q == opt.q2 && opt.e == opt.e2
       ksw_extz2(qlen, qseq, tlen, tseq, 5, mat,
-                opt.q, opt.e, w, zdrop, end_bonus, flag)
+        opt.q, opt.e, w, zdrop, end_bonus, flag)
     else
       ksw_extd2(qlen, qseq, tlen, tseq, 5, mat,
-                opt.q, opt.e, opt.q2, opt.e2, w, zdrop, end_bonus, flag)
+        opt.q, opt.e, opt.q2, opt.e2, w, zdrop, end_bonus, flag)
     end
   end
 
   # Compute r.mlen, r.blen, r.div from CIGAR (mirrors mm_update_extra).
   private def self.update_extra(r : MmReg1, qseq : Array(UInt8), tseq : Array(UInt8),
-                                 mat : Array(Int8), q : Int32, e : Int32, is_eqx : Bool) : Nil
+                                mat : Array(Int8), q : Int32, e : Int32, is_eqx : Bool) : Nil
     ep = r.p
     return unless ep
     r.blen = r.mlen = 0
@@ -95,7 +95,7 @@ module Minimap2
     s = 0.0; max_s = 0.0
 
     ep.cigar.each do |c|
-      op  = (c & 0xf).to_i32
+      op = (c & 0xf).to_i32
       len = (c >> 4).to_i32
       case op
       when CIGAR_MATCH
@@ -103,8 +103,10 @@ module Minimap2
         len.times do |l|
           cq = qseq[qoff + l].to_i32
           ct = tseq[toff + l].to_i32
-          if ct > 3 || cq > 3; n_ambi += 1
-          elsif ct != cq; n_diff += 1
+          if ct > 3 || cq > 3
+            n_ambi += 1
+          elsif ct != cq
+            n_diff += 1
           end
           s += mat[ct * 5 + cq].to_f
           s = 0.0 if s < 0.0
@@ -137,19 +139,23 @@ module Minimap2
       new_cigar = [] of UInt32
       qoff2 = 0; toff2 = 0
       ep.cigar.each do |c|
-        op  = (c & 0xf).to_i32
+        op = (c & 0xf).to_i32
         len = (c >> 4).to_i32
         if op == CIGAR_MATCH
           rem = len
           while rem > 0
             l = 0
-            while l < rem && qseq[qoff2 + l] == tseq[toff2 + l]; l += 1; end
+            while l < rem && qseq[qoff2 + l] == tseq[toff2 + l]
+              l += 1
+            end
             if l > 0
               new_cigar << (l.to_u32 << 4 | CIGAR_EQ_MATCH.to_u32)
               qoff2 += l; toff2 += l; rem -= l
             end
             l = 0
-            while l < rem && qseq[qoff2 + l] != tseq[toff2 + l]; l += 1; end
+            while l < rem && qseq[qoff2 + l] != tseq[toff2 + l]
+              l += 1
+            end
             if l > 0
               new_cigar << (l.to_u32 << 4 | CIGAR_X_MISMATCH.to_u32)
               qoff2 += l; toff2 += l; rem -= l
@@ -168,10 +174,10 @@ module Minimap2
   # Align one region r using its seed chain.
   # This is a simplified version of mm_align_skeleton / mm_realign.
   private def self.align_one_reg(opt : MmMapOpt, mi : MmIdx,
-                                  qlen : Int32, qseq_fwd : Array(UInt8),
-                                  r : MmReg1, a : Array(Mm128)) : Nil
+                                 qlen : Int32, qseq_fwd : Array(UInt8),
+                                 r : MmReg1, a : Array(Mm128)) : Nil
     is_rev = r.rev
-    rid    = r.rid
+    rid = r.rid
     qs = r.qs; qe = r.qe; rs = r.rs; re = r.re
     qlen_aln = qe - qs; tlen_aln = re - rs
     return if qlen_aln <= 0 || tlen_aln <= 0
@@ -189,23 +195,23 @@ module Minimap2
 
     mat = gen_simple_mat(5, opt.a, opt.b, opt.sc_ambi, opt.transition)
 
-    bw    = [opt.bw, tlen_aln, qlen_aln].min
+    bw = [opt.bw, tlen_aln, qlen_aln].min
     zdrop = opt.zdrop
 
-    ksw_flag  = KSW_EZ_EXTZ_ONLY
+    ksw_flag = KSW_EZ_EXTZ_ONLY
     ksw_flag |= KSW_EZ_REV_CIGAR
     ksw_flag |= KSW_EZ_RIGHT if (opt.flag & F_SPLICE) != 0
 
     ez = align_pair(opt, qlen_aln, qseq, tlen_aln, tseq, mat,
-                    bw, opt.end_bonus, zdrop, ksw_flag)
+      bw, opt.end_bonus, zdrop, ksw_flag)
 
     return if ez.zdropped || ez.n_cigar == 0
 
     # Create MmExtra and fill it
     ep = MmExtra.new
     ep.dp_score = ez.score
-    ep.dp_max   = ez.score
-    ep.dp_max2  = KSW_NEG_INF
+    ep.dp_max = ez.score
+    ep.dp_max2 = KSW_NEG_INF
     append_cigar(ep, ez.cigar)
     r.p = ep
 
@@ -216,9 +222,9 @@ module Minimap2
   # Alignment skeleton: align all regions with CIGAR output.
   # Mirrors mm_align_skeleton().
   def self.align_skeleton(opt : MmMapOpt, mi : MmIdx, qlen : Int32,
-                           qstr : String | Array(UInt8),
-                           n_regs_ref : Pointer(Int32), regs : Array(MmReg1),
-                           a : Array(Mm128)) : Array(MmReg1)
+                          qstr : String | Array(UInt8),
+                          n_regs_ref : Pointer(Int32), regs : Array(MmReg1),
+                          a : Array(Mm128)) : Array(MmReg1)
     return regs unless (opt.flag & F_CIGAR) != 0
 
     qseq_fwd : Array(UInt8)

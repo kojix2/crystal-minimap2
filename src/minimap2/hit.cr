@@ -22,28 +22,28 @@ module Minimap2
     r.mlen = r.blen = ((a[r.a_off].y >> 32) & 0xff).to_i32
     (r.a_off + 1).upto(r.a_off + r.cnt - 1) do |i|
       span = ((a[i].y >> 32) & 0xff).to_i32
-      tl   = u64_to_i32(a[i].x) - u64_to_i32(a[i - 1].x)
-      ql   = u64_to_i32(a[i].y) - u64_to_i32(a[i - 1].y)
+      tl = u64_to_i32(a[i].x) - u64_to_i32(a[i - 1].x)
+      ql = u64_to_i32(a[i].y) - u64_to_i32(a[i - 1].y)
       r.blen += tl > ql ? tl : ql
       r.mlen += if tl > span && ql > span
-        span
-      elsif tl < ql
-        tl
-      else
-        ql
-      end
+                  span
+                elsif tl < ql
+                  tl
+                else
+                  ql
+                end
     end
   end
 
   # Fill coordinates of a region from its chain anchors.
   private def self.reg_set_coor(r : MmReg1, qlen : Int32, a : Array(Mm128), is_qstrand : Bool) : Nil
-    k      = r.a_off
+    k = r.a_off
     q_span = ((a[k].y >> 32) & 0xff).to_i32
-    r.rev  = (a[k].x >> 63) == 1
-    r.rid  = ((a[k].x << 1) >> 33).to_i32
+    r.rev = (a[k].x >> 63) == 1
+    r.rid = ((a[k].x << 1) >> 33).to_i32
     rs_cand = u64_to_i32(a[k].x) + 1 - q_span
-    r.rs   = rs_cand > 0 ? rs_cand : 0
-    r.re   = u64_to_i32(a[k + r.cnt - 1].x) + 1
+    r.rs = rs_cand > 0 ? rs_cand : 0
+    r.re = u64_to_i32(a[k + r.cnt - 1].x) + 1
     if !r.rev || is_qstrand
       r.qs = u64_to_i32(a[k].y) + 1 - q_span
       r.qe = u64_to_i32(a[k + r.cnt - 1].y) + 1
@@ -76,13 +76,13 @@ module Minimap2
     regs = Array(MmReg1).new(n_u) { MmReg1.new }
     n_u.times do |i|
       ri = regs[i]
-      ri.id      = i
-      ri.parent  = PARENT_UNSET
-      ri.score   = ri.score0 = u64_to_i32(z[i].x >> 32)
-      ri.hash    = (z[i].x & 0xffffffff_u64).to_u32
-      ri.cnt     = u64_to_i32(z[i].y)
-      ri.a_off   = (z[i].y >> 32).to_i32
-      ri.div     = -1.0_f32
+      ri.id = i
+      ri.parent = PARENT_UNSET
+      ri.score = ri.score0 = u64_to_i32(z[i].x >> 32)
+      ri.hash = (z[i].x & 0xffffffff_u64).to_u32
+      ri.cnt = u64_to_i32(z[i].y)
+      ri.a_off = (z[i].y >> 32).to_i32
+      ri.div = -1.0_f32
       reg_set_coor(ri, qlen, a, is_qstrand)
     end
     regs
@@ -109,13 +109,13 @@ module Minimap2
     return if n <= 1
 
     # Keep only hits with cnt > 0 or inv flag set
-    aux   = Array(Mm128).new
+    aux = Array(Mm128).new
     valid = Array(MmReg1).new
 
     n.times do |i|
       r = regs[i]
       if r.inv || r.cnt > 0
-        score = r.p ? r.p.not_nil!.dp_max : r.score
+        score = (ep = r.p) ? ep.dp_max : r.score
         score = alt_score(score, alt_diff_frac) if r.is_alt
         aux << Mm128.new((score.to_u64 << 32) | r.hash.to_u64, i.to_u64)
       end
@@ -154,12 +154,12 @@ module Minimap2
     regs.each_with_index do |r, i|
       r.id = i
       r.parent = if r.parent == PARENT_TMP_PRI
-        i
-      elsif r.parent >= 0 && tmp[r.parent] >= 0
-        tmp[r.parent]
-      else
-        PARENT_UNSET
-      end
+                   i
+                 elsif r.parent >= 0 && tmp[r.parent] >= 0
+                   tmp[r.parent]
+                 else
+                   PARENT_UNSET
+                 end
     end
     set_sam_pri(regs)
   end
@@ -172,16 +172,16 @@ module Minimap2
     n = regs.size
     return if n == 0
     n.times { |i| regs[i].id = i }
-    w = [] of Int32   # primary hit indices
+    w = [] of Int32 # primary hit indices
     w << 0
     regs[0].parent = 0
 
     (1...n).each do |i|
-      ri     = regs[i]
-      si     = ri.qs; ei = ri.qe
-      n_cov  = 0
-      uncov  = 0
-      cov    = [] of UInt64
+      ri = regs[i]
+      si = ri.qs; ei = ri.qe
+      n_cov = 0
+      uncov = 0
+      cov = [] of UInt64
 
       unless hard_mask_level
         w.each do |wj|
@@ -211,15 +211,14 @@ module Minimap2
         next if ej <= si || sj >= ei
         min = [ej - sj, ei - si].min
         max = [ej - sj, ei - si].max
-        ol  = [0, [si < sj ? ei - sj : ej - si, min].min].max
+        ol = [0, [si < sj ? ei - sj : ej - si, min].min].max
         if ol.to_f / min - uncov.to_f / max > mask_level && uncov <= mask_len
           ri.parent = rp.parent
           sci = ri.score
           sci = alt_score(sci, alt_diff_frac) if !rp.is_alt && ri.is_alt
           rp.subsc = [rp.subsc, sci].max
           cnt_sub = ri.cnt >= rp.cnt ? 1 : 0
-          if rp.p && ri.p
-            ep = rp.p.not_nil!; ei2 = ri.p.not_nil!
+          if (ep = rp.p) && (ei2 = ri.p)
             if rp.rid != ri.rid || rp.rs != ri.rs || rp.re != ri.re || ol != min
               sci2 = ei2.dp_max
               sci2 = alt_score(sci2, alt_diff_frac) if !rp.is_alt && ri.is_alt
@@ -247,7 +246,7 @@ module Minimap2
                       n_regs_ref : Pointer(Int32), regs : Array(MmReg1)) : Nil
     return if pri_ratio <= 0.0_f32 || n_regs_ref.value == 0
     n = n_regs_ref.value
-    k    = 0
+    k = 0
     n_2nd = 0
 
     n.times do |i|
@@ -267,7 +266,7 @@ module Minimap2
     end
 
     if k != n
-      regs.delete_at(k, regs.size - k) if regs.size > k  # remove excess
+      regs.delete_at(k, regs.size - k) if regs.size > k # remove excess
       trimmed = regs.first(k)
       regs.replace(trimmed)
       sync_regs(regs)
@@ -285,8 +284,7 @@ module Minimap2
       if !r.inv && !r.seg_split && r.cnt < opt.min_cnt
         flt = true
       end
-      if r.p
-        ep = r.p.not_nil!
+      if ep = r.p
         flt = true if r.mlen < opt.min_chain_score
         flt = true if ep.dp_max < opt.min_dp_max
         flt = true if r.qs > qlen * opt.max_clip_ratio && qlen - r.qe > qlen * opt.max_clip_ratio
@@ -332,19 +330,19 @@ module Minimap2
   def self.split_reg(r : MmReg1, r2 : MmReg1, n : Int32, qlen : Int32,
                      a : Array(Mm128), is_qstrand : Bool) : Nil
     return if n <= 0 || n >= r.cnt
-    r2.id    = -1
+    r2.id = -1
     r2.sam_pri = false
-    r2.p     = nil
+    r2.p = nil
     r2.split_inv = false
-    r2.cnt   = r.cnt - n
+    r2.cnt = r.cnt - n
     r2.score = (r.score * (r2.cnt.to_f / r.cnt) + 0.499).to_i32
-    r2.a_off    = r.a_off + n
+    r2.a_off = r.a_off + n
     r2.parent = r.parent == r.id ? PARENT_TMP_PRI : r.parent
     reg_set_coor(r2, qlen, a, is_qstrand)
-    r.cnt    -= r2.cnt
-    r.score  -= r2.score
+    r.cnt -= r2.cnt
+    r.score -= r2.score
     reg_set_coor(r, qlen, a, is_qstrand)
-    r.split  |= 1_u32; r2.split |= 2_u32
+    r.split |= 1_u32; r2.split |= 2_u32
   end
 
   # Set MAPQ scores for hits.
@@ -355,10 +353,9 @@ module Minimap2
     n_regs.times do |i|
       r = regs[i]
       next if r.cnt == 0
-      if r.p
-        ep = r.p.not_nil!
+      if ep = r.p
         # Estimate mapq from dp_max and dp_max2
-        if r.parent == i  # primary
+        if r.parent == i # primary
           if ep.dp_max2 < 0
             r.mapq = 60_u32
           else
@@ -421,11 +418,9 @@ module Minimap2
     n_regs0.times do |i|
       r = regs0[i]
       r.cnt.times do |j|
-        a1  = a[r.a_off + j]
+        a1 = a[r.a_off + j]
         sid = ((a1.y & SEED_SEG_MASK) >> SEED_SEG_SHIFT).to_i32
-        shift = (a1.x >> 63) != 0 ?
-          (qlen_sum - (qlens[sid] + acc_qlen[sid])).to_u64 :
-          acc_qlen[sid].to_u64
+        shift = (a1.x >> 63) != 0 ? (qlen_sum - (qlens[sid] + acc_qlen[sid])).to_u64 : acc_qlen[sid].to_u64
         a1 = Mm128.new(a1.x, a1.y &- shift)
         segs[sid].a[segs[sid].n_a] = a1
         segs[sid].n_a += 1

@@ -5,8 +5,8 @@ module Minimap2
   # After worker_post: a[] is cleared and h[] is the lookup table.
   # ---------------------------------------------------------------------------
   private class MmIdxBucket
-    property a : Array(Mm128)                 # collecting phase
-    property h : Hash(UInt64, Array(UInt64))  # minimizer_key → sorted positions
+    property a : Array(Mm128)                # collecting phase
+    property h : Hash(UInt64, Array(UInt64)) # minimizer_key → sorted positions
 
     def initialize
       @a = [] of Mm128
@@ -18,16 +18,16 @@ module Minimap2
   # The minimap2 index — mirrors mm_idx_t
   # ---------------------------------------------------------------------------
   class MmIdx
-    property w      : Int32   # window size
-    property k      : Int32   # k-mer size
-    property b      : Int32   # bucket bits
-    property flag   : Int32   # MM_I_* flags
-    property n_seq  : UInt32
-    property seq    : Array(IdxSeq)
-    property s_arr  : Array(UInt32)   # packed 4-bit sequence (S in C)
-    property name_map : Hash(String, UInt32)  # name → index
-    property index  : Int32           # part index (for split index)
-    property n_alt  : Int32           # number of ALT sequences
+    property w : Int32    # window size
+    property k : Int32    # k-mer size
+    property b : Int32    # bucket bits
+    property flag : Int32 # MM_I_* flags
+    property n_seq : UInt32
+    property seq : Array(IdxSeq)
+    property s_arr : Array(UInt32)           # packed 4-bit sequence (S in C)
+    property name_map : Hash(String, UInt32) # name → index
+    property index : Int32                   # part index (for split index)
+    property n_alt : Int32                   # number of ALT sequences
     @b_arr : Array(MmIdxBucket)
 
     protected getter b_arr : Array(MmIdxBucket)
@@ -49,7 +49,7 @@ module Minimap2
     # 8 bases per UInt32, 4 bits each.
     # -------------------------------------------------------------------------
     def seq4_set(offset : UInt64, c : Int32) : Nil
-      idx  = (offset >> 3).to_i32
+      idx = (offset >> 3).to_i32
       @s_arr[idx] = @s_arr[idx] | (c.to_u32 << ((offset & 7) << 2))
     end
 
@@ -97,7 +97,7 @@ module Minimap2
         while k < bkt.a.size && bkt.a[k].x >> 8 == x0
           k += 1
         end
-        key = x0 >> @b  # strip bucket-index bits
+        key = x0 >> @b # strip bucket-index bits
         positions = bkt.a[j...k].map(&.y).sort!
         h[key] = positions
         j = k
@@ -118,7 +118,7 @@ module Minimap2
         return
       end
 
-      ctx     = Fiber::ExecutionContext::Parallel.new("idx-post", n_threads)
+      ctx = Fiber::ExecutionContext::Parallel.new("idx-post", n_threads)
       pending = Atomic(Int32).new(total)
       done_ch = Channel(Nil).new(1)
 
@@ -139,7 +139,7 @@ module Minimap2
     # -------------------------------------------------------------------------
     def get(minier : UInt64) : Array(UInt64)?
       mask = ((1 << @b) - 1).to_u64
-      key  = minier >> @b
+      key = minier >> @b
       @b_arr[(minier & mask).to_i32].h[key]?
     end
 
@@ -243,7 +243,7 @@ module Minimap2
       io.write_bytes(@w.to_u32, IO::ByteFormat::LittleEndian)
       io.write_bytes(@k.to_u32, IO::ByteFormat::LittleEndian)
       io.write_bytes(@b.to_u32, IO::ByteFormat::LittleEndian)
-      io.write_bytes(@n_seq,    IO::ByteFormat::LittleEndian)
+      io.write_bytes(@n_seq, IO::ByteFormat::LittleEndian)
       io.write_bytes(@flag.to_u32, IO::ByteFormat::LittleEndian)
       @seq.each do |s|
         name_b = s.name.to_slice
@@ -254,7 +254,7 @@ module Minimap2
       (1 << @b).times do |i|
         bkt = @b_arr[i]
         # Rebuild flat p[] and hash for serialisation
-        flat_p  = [] of UInt64
+        flat_p = [] of UInt64
         entries = [] of {UInt64, UInt64}
         bkt.h.each do |key, positions|
           if positions.size == 1
@@ -287,9 +287,9 @@ module Minimap2
       magic = Bytes.new(4)
       return nil if io.read(magic) < 4
       return nil unless magic == IDX_MAGIC.to_slice
-      w    = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
-      k    = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
-      b    = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
+      w = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
+      k = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
+      b = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
       nseq = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian)
       flag = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
       mi = new(w, k, b, flag)
@@ -298,7 +298,7 @@ module Minimap2
       nseq.times do |_|
         l = io.read_byte || 0_u8
         name = l > 0 ? String.new(Bytes.new(l).tap { |buf| io.read_fully(buf) }) : ""
-        len  = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian)
+        len = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian)
         mi.seq << IdxSeq.new(name, sum_len, len)
         sum_len += len
       end
@@ -309,12 +309,12 @@ module Minimap2
         size = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
         size.times do
           raw_key = io.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
-          val     = io.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
-          key = raw_key >> b + 1  # strip bucket bits and singleton bit
+          val = io.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
+          key = raw_key >> b + 1 # strip bucket bits and singleton bit
           if (raw_key & 1) == 1
             bkt.h[key] = [val]
           else
-            count   = (val & 0xffffffff_u64).to_i32
+            count = (val & 0xffffffff_u64).to_i32
             start_p = (val >> 32).to_i64
             bkt.h[key] = flat_p[start_p...(start_p + count)]
           end
@@ -412,9 +412,9 @@ module Minimap2
                           seqs : Array(String),
                           names : Array(String)? = nil) : MmIdx
       flag = 0
-      flag |= I_HPC      if is_hpc
-      flag |= I_NO_NAME  if names.nil?
-      bucket_bits = 14   if bucket_bits < 0
+      flag |= I_HPC if is_hpc
+      flag |= I_NO_NAME if names.nil?
+      bucket_bits = 14 if bucket_bits < 0
       mi = new(w, k, bucket_bits, flag)
       mi.n_seq = seqs.size.to_u32
       sum_len = 0_u64
@@ -454,8 +454,8 @@ module Minimap2
   # ---------------------------------------------------------------------------
   class MmIdxReader
     def initialize(@fn : String, @opt : MmIdxOpt, @fn_out : String? = nil)
-      @is_idx   = MmIdx.is_idx?(@fn)
-      @n_parts  = 0
+      @is_idx = MmIdx.is_idx?(@fn)
+      @n_parts = 0
       if @is_idx > 0
         @idx_io = File.open(@fn, "rb")
         @seq_fp = nil

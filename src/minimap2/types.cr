@@ -16,7 +16,7 @@ module Minimap2
   # ---------------------------------------------------------------------------
   class IdxSeq
     property name : String
-    property offset : UInt64  # offset in the packed-sequence array
+    property offset : UInt64 # offset in the packed-sequence array
     property len : UInt32
     property is_alt : UInt32
 
@@ -33,9 +33,9 @@ module Minimap2
     property dp_max : Int32
     property dp_max2 : Int32
     property dp_max0 : Int32
-    property n_ambi : UInt32    # number of ambiguous bases
-    property trans_strand : UInt32  # transcript strand: 0=unknown, 1=+, 2=-
-    property cigar : Array(UInt32)  # each element: length<<4 | op
+    property n_ambi : UInt32       # number of ambiguous bases
+    property trans_strand : UInt32 # transcript strand: 0=unknown, 1=+, 2=-
+    property cigar : Array(UInt32) # each element: length<<4 | op
 
     def initialize
       @capacity = 0_u32
@@ -54,20 +54,20 @@ module Minimap2
   # ---------------------------------------------------------------------------
   class MmReg1
     property id : Int32
-    property cnt : Int32        # number of minimizers
-    property rid : Int32        # reference index
-    property score : Int32      # DP alignment score
-    property qs : Int32         # query start
-    property qe : Int32         # query end
-    property rs : Int32         # reference start
-    property re : Int32         # reference end
-    property parent : Int32     # parent id (self if primary)
-    property subsc : Int32      # best alternate mapping score
-    property a_off : Int32       # offset in the a[] array (internal)
-    property mlen : Int32       # matching bases
-    property blen : Int32       # alignment block length
-    property n_sub : Int32      # number of suboptimal mappings
-    property score0 : Int32     # initial chaining score
+    property cnt : Int32    # number of minimizers
+    property rid : Int32    # reference index
+    property score : Int32  # DP alignment score
+    property qs : Int32     # query start
+    property qe : Int32     # query end
+    property rs : Int32     # reference start
+    property re : Int32     # reference end
+    property parent : Int32 # parent id (self if primary)
+    property subsc : Int32  # best alternate mapping score
+    property a_off : Int32  # offset in the a[] array (internal)
+    property mlen : Int32   # matching bases
+    property blen : Int32   # alignment block length
+    property n_sub : Int32  # number of suboptimal mappings
+    property score0 : Int32 # initial chaining score
 
     # Packed bitfields (see accessor methods below)
     property mapq : UInt32
@@ -86,7 +86,7 @@ module Minimap2
 
     property hash : UInt32
     property div : Float32
-    property p : MmExtra?       # nil when CIGAR not requested
+    property p : MmExtra? # nil when CIGAR not requested
 
     def initialize
       @id = @cnt = @rid = @score = 0
@@ -111,9 +111,9 @@ module Minimap2
   # Index-construction options  (mirrors mm_idxopt_t)
   # ---------------------------------------------------------------------------
   class MmIdxOpt
-    property k : Int32          # k-mer size
-    property w : Int32          # window size
-    property flag : Int32       # MM_I_* flags
+    property k : Int32    # k-mer size
+    property w : Int32    # window size
+    property flag : Int32 # MM_I_* flags
     property bucket_bits : Int32
     property mini_batch_size : Int64
     property batch_size : UInt64
@@ -156,10 +156,10 @@ module Minimap2
     property pri_ratio : Float32
     property best_n : Int32
     property alt_drop : Float32
-    property a : Int32          # match score
-    property b : Int32          # mismatch penalty
-    property q : Int32          # gap open
-    property e : Int32          # gap extend
+    property a : Int32 # match score
+    property b : Int32 # mismatch penalty
+    property q : Int32 # gap open
+    property e : Int32 # gap extend
     property q2 : Int32
     property e2 : Int32
     property transition : Int32
@@ -246,11 +246,11 @@ module Minimap2
   # Seed match  (mirrors mm_seed_t, internal to mapping)
   # ---------------------------------------------------------------------------
   struct MmSeed
-    property n : Int32          # number of reference hits
-    property q_pos : UInt32     # query position (pos<<1|strand)
-    property q_span : UInt32    # k-mer span on query
-    property flt : Bool         # filtered (too frequent)
-    property seg_id : UInt32    # segment id (for paired-end)
+    property n : Int32       # number of reference hits
+    property q_pos : UInt32  # query position (pos<<1|strand)
+    property q_span : UInt32 # k-mer span on query
+    property flt : Bool      # filtered (too frequent)
+    property seg_id : UInt32 # segment id (for paired-end)
     property is_tandem : Bool
 
     # reference hits: array of (rid<<32|pos) packed into UInt64

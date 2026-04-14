@@ -99,11 +99,11 @@ module Minimap2
     raise ArgumentError.new("k must be in [1,28]") unless k > 0 && k <= 28
 
     shift1 = 2 * (k - 1)
-    mask   = (1_u64 << (2 * k)) &- 1_u64
-    kmer   = StaticArray(UInt64, 2).new(0_u64)
-    buf    = Array(Mm128).new(w + 1) { Mm128.max }   # circular buffer of size w
-    min    = Mm128.max
-    tq     = TinyQueue.new
+    mask = (1_u64 << (2 * k)) &- 1_u64
+    kmer = StaticArray(UInt64, 2).new(0_u64)
+    buf = Array(Mm128).new(w + 1) { Mm128.max } # circular buffer of size w
+    min = Mm128.max
+    tq = TinyQueue.new
 
     buf_pos = 0
     min_pos = 0
@@ -117,7 +117,7 @@ module Minimap2
       c = SEQ_NT4_TABLE[seq_bytes[i].to_i]
       info = Mm128.max
 
-      if c < 4  # unambiguous base
+      if c < 4 # unambiguous base
         if is_hpc
           # skip homopolymer run
           skip_len = 1
@@ -127,7 +127,7 @@ module Minimap2
               skip_len += 1
             end
           end
-          i += skip_len - 1  # advance to end of run
+          i += skip_len - 1 # advance to end of run
           tq.push(skip_len)
           kmer_span += skip_len
           kmer_span -= tq.shift if tq.size > k
@@ -135,11 +135,11 @@ module Minimap2
           kmer_span = l + 1 < k ? l + 1 : k
         end
 
-        kmer[0] = ((kmer[0] << 2) | c.to_u64) & mask          # forward k-mer
-        kmer[1] = (kmer[1] >> 2) | ((3_u64 ^ c.to_u64) << shift1)  # reverse k-mer
+        kmer[0] = ((kmer[0] << 2) | c.to_u64) & mask              # forward k-mer
+        kmer[1] = (kmer[1] >> 2) | ((3_u64 ^ c.to_u64) << shift1) # reverse k-mer
         # skip palindromic k-mers — strand unknown
         unless kmer[0] == kmer[1]
-          z = kmer[0] < kmer[1] ? 0 : 1  # strand
+          z = kmer[0] < kmer[1] ? 0 : 1 # strand
           l += 1
           if l >= k && kmer_span < 256
             info = Mm128.new(

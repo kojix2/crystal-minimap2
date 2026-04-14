@@ -6,64 +6,64 @@ module Minimap2
 
   # Initialise MmIdxOpt with default values (mirrors mm_idxopt_init).
   def self.idxopt_init(opt : MmIdxOpt) : Nil
-    opt.k               = 15
-    opt.w               = 10
-    opt.flag            = 0
-    opt.bucket_bits     = 14
+    opt.k = 15
+    opt.w = 10
+    opt.flag = 0
+    opt.bucket_bits = 14
     opt.mini_batch_size = 50_000_000_i64
-    opt.batch_size      = 8_000_000_000_u64
+    opt.batch_size = 8_000_000_000_u64
   end
 
   # Initialise MmMapOpt with default values (mirrors mm_mapopt_init).
   def self.mapopt_init(opt : MmMapOpt) : Nil
-    opt.seed            = 11
-    opt.mid_occ_frac    = 2e-4_f32
-    opt.min_mid_occ     = 10
-    opt.max_mid_occ     = 1_000_000
-    opt.sdust_thres     = 0
-    opt.q_occ_frac      = 0.01_f32
+    opt.seed = 11
+    opt.mid_occ_frac = 2e-4_f32
+    opt.min_mid_occ = 10
+    opt.max_mid_occ = 1_000_000
+    opt.sdust_thres = 0
+    opt.q_occ_frac = 0.01_f32
 
-    opt.min_cnt         = 3
+    opt.min_cnt = 3
     opt.min_chain_score = 40
-    opt.bw              = 500
-    opt.bw_long         = 20_000
-    opt.max_gap         = 5_000
-    opt.max_gap_ref     = -1
-    opt.max_chain_skip  = 25
-    opt.max_chain_iter  = 5_000
-    opt.rmq_inner_dist  = 1_000
-    opt.rmq_size_cap    = 100_000
+    opt.bw = 500
+    opt.bw_long = 20_000
+    opt.max_gap = 5_000
+    opt.max_gap_ref = -1
+    opt.max_chain_skip = 25
+    opt.max_chain_iter = 5_000
+    opt.rmq_inner_dist = 1_000
+    opt.rmq_size_cap = 100_000
     opt.rmq_rescue_size = 1_000
     opt.rmq_rescue_ratio = 0.1_f32
-    opt.chain_gap_scale  = 0.8_f32
+    opt.chain_gap_scale = 0.8_f32
     opt.chain_skip_scale = 0.0_f32
-    opt.max_max_occ      = 4_095
-    opt.occ_dist         = 500
+    opt.max_max_occ = 4_095
+    opt.occ_dist = 500
 
-    opt.mask_level  = 0.5_f32
-    opt.mask_len    = Int32::MAX
-    opt.pri_ratio   = 0.8_f32
-    opt.best_n      = 5
+    opt.mask_level = 0.5_f32
+    opt.mask_len = Int32::MAX
+    opt.pri_ratio = 0.8_f32
+    opt.best_n = 5
 
-    opt.alt_drop    = 0.15_f32
+    opt.alt_drop = 0.15_f32
 
-    opt.a  = 2; opt.b = 4; opt.q = 4; opt.e = 2; opt.q2 = 24; opt.e2 = 1
-    opt.transition  = 0
-    opt.sc_ambi     = 1
-    opt.zdrop       = 400; opt.zdrop_inv = 200
-    opt.end_bonus   = -1
-    opt.min_dp_max  = opt.min_chain_score * opt.a
+    opt.a = 2; opt.b = 4; opt.q = 4; opt.e = 2; opt.q2 = 24; opt.e2 = 1
+    opt.transition = 0
+    opt.sc_ambi = 1
+    opt.zdrop = 400; opt.zdrop_inv = 200
+    opt.end_bonus = -1
+    opt.min_dp_max = opt.min_chain_score * opt.a
     opt.min_ksw_len = 200
-    opt.anchor_ext_len   = 20; opt.anchor_ext_shift = 6
-    opt.max_clip_ratio   = 1.0_f32
-    opt.mini_batch_size  = 500_000_000_i64
-    opt.max_sw_mat       = 100_000_000_i64
-    opt.cap_kalloc       = 500_000_000_i64
+    opt.anchor_ext_len = 20; opt.anchor_ext_shift = 6
+    opt.max_clip_ratio = 1.0_f32
+    opt.mini_batch_size = 500_000_000_i64
+    opt.max_sw_mat = 100_000_000_i64
+    opt.cap_kalloc = 500_000_000_i64
 
     opt.rank_min_len = 500
-    opt.rank_frac    = 0.9_f32
+    opt.rank_frac = 0.9_f32
 
-    opt.pe_ori   = 0   # FF
+    opt.pe_ori = 0 # FF
     opt.pe_bonus = 33
 
     opt.jump_min_match = 3
@@ -146,7 +146,7 @@ module Minimap2
     when "short", "sr"
       io.flag = 0; io.k = 21; io.w = 11
       mo.flag |= F_SR | F_FRAG_MODE | F_NO_PRINT_2ND | F_2_IO_THREADS | F_HEAP_SORT
-      mo.pe_ori = 0 << 1 | 1  # FR
+      mo.pe_ori = 0 << 1 | 1 # FR
       mo.a = 2; mo.b = 8; mo.q = 12; mo.e = 2; mo.q2 = 24; mo.e2 = 1
       mo.zdrop = mo.zdrop_inv = 100
       mo.end_bonus = 10
@@ -180,7 +180,7 @@ module Minimap2
         mo.min_chain_score = 25
         mo.min_dp_max = 40
         mo.min_ksw_len = 20
-        mo.pe_ori = 0 << 1 | 1  # FR
+        mo.pe_ori = 0 << 1 | 1 # FR
         mo.best_n = 10
         mo.mini_batch_size = 100_000_000_i64
       end

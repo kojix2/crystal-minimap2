@@ -8,6 +8,9 @@ targets:
   minimap2:
     main: src/main.cr
     flags: -Dpreview_mt -Dexecution_context
+  paftools:
+    main: src/paftools_main.cr
+    flags: -Dpreview_mt -Dexecution_context
 
 crystal: '>= 1.19.1'
 

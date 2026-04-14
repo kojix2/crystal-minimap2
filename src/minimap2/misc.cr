@@ -2,17 +2,30 @@ module Minimap2
   # ---------------------------------------------------------------------------
   # Global state  (mirrors misc.c globals)
   # ---------------------------------------------------------------------------
-  @@verbose    : Int32         = 1   # 0=silent, 1=error, 2=warning, 3=message
-  @@dbg_flag   : Int32         = 0
-  @@t0         : Time::Instant = Time.instant  # program-start monotonic timestamp
+  @@verbose : Int32 = 1 # 0=silent, 1=error, 2=warning, 3=message
+  @@dbg_flag : Int32 = 0
+  @@t0 : Time::Instant = Time.instant # program-start monotonic timestamp
 
-  def self.verbose : Int32;       @@verbose;         end
-  def self.verbose=(v : Int32);   @@verbose = v;     end
-  def self.dbg_flag : Int32;      @@dbg_flag;        end
-  def self.dbg_flag=(v : Int32);  @@dbg_flag = v;    end
+  def self.verbose : Int32
+    @@verbose
+  end
+
+  def self.verbose=(v : Int32)
+    @@verbose = v
+  end
+
+  def self.dbg_flag : Int32
+    @@dbg_flag
+  end
+
+  def self.dbg_flag=(v : Int32)
+    @@dbg_flag = v
+  end
 
   # Seconds elapsed since program start (used as realtime0 baseline: always 0.0).
-  def self.realtime0 : Float64;   0.0;               end
+  def self.realtime0 : Float64
+    0.0
+  end
 
   # ---------------------------------------------------------------------------
   # Truncate UInt64 to lower 32 bits and reinterpret as Int32.

@@ -53,7 +53,7 @@ end
 private def c_minimap2(ref_fa : String, qry_fa : String, args : String = "-c") : Array(PafRow)
   output = IO::Memory.new
   Process.run(MINIMAP2_BIN, args: args.split + [ref_fa, qry_fa],
-              output: output, error: Process::Redirect::Close)
+    output: output, error: Process::Redirect::Close)
   parse_paf(output.to_s)
 end
 
@@ -64,7 +64,7 @@ private def read_fasta(path : String) : Array({String, String})
     if line.starts_with?('>')
       seqs << {name, buf.to_s} unless name.empty?
       name = line[1..].split(' ')[0].strip
-      buf  = String::Builder.new
+      buf = String::Builder.new
     else
       buf << line.strip.upcase
     end
@@ -84,7 +84,7 @@ private def crystal_minimap2(ref_fa : String, qry_fa : String, preset : String) 
     aln.map(qseq, qname).each do |h|
       next if h.rid < 0
       tname = aln.seq_names[h.rid]
-      tlen  = aln.seq_lengths[h.rid].to_i32
+      tlen = aln.seq_lengths[h.rid].to_i32
       rows << PafRow.new(
         qname: qname, qlen: qseq.size,
         qs: h.qs, qe: h.qe,
@@ -112,17 +112,17 @@ end
 describe "Crystal port vs C minimap2" do
   mt_human = "#{TEST_DIR}/MT-human.fa"
   mt_orang = "#{TEST_DIR}/MT-orang.fa"
-  t_inv    = "#{TEST_DIR}/t-inv.fa"
-  q_inv    = "#{TEST_DIR}/q-inv.fa"
-  x3s_ref  = "#{TEST_DIR}/x3s-ref.fa"
-  x3s_qry  = "#{TEST_DIR}/x3s-qry.fa"
+  t_inv = "#{TEST_DIR}/t-inv.fa"
+  q_inv = "#{TEST_DIR}/q-inv.fa"
+  x3s_ref = "#{TEST_DIR}/x3s-ref.fa"
+  x3s_qry = "#{TEST_DIR}/x3s-qry.fa"
 
   # -------------------------------------------------------------------------
   # 1.  MT-orang vs MT-human  (map-ont, single long alignment)
   # -------------------------------------------------------------------------
   describe "MT-orang vs MT-human" do
-    c   = c_minimap2(mt_human, mt_orang)
-    cr  = crystal_minimap2(mt_human, mt_orang, "map-ont")
+    c = c_minimap2(mt_human, mt_orang)
+    cr = crystal_minimap2(mt_human, mt_orang, "map-ont")
 
     it "C produces exactly 1 primary alignment" do
       c.size.should eq(1)
@@ -167,8 +167,8 @@ describe "Crystal port vs C minimap2" do
     end
 
     it "alignment block length covers similar fraction of query as C (within 10%)" do
-      ref  = c.first; hit = cr.first
-      frac_c  = ref.blen.to_f / ref.qlen
+      ref = c.first; hit = cr.first
+      frac_c = ref.blen.to_f / ref.qlen
       frac_cr = hit.blen.to_f / hit.qlen
       (frac_c - frac_cr).abs.should be <= 0.10,
         "C blen_frac=#{frac_c.round(3)} Crystal blen_frac=#{frac_cr.round(3)}"
@@ -183,7 +183,7 @@ describe "Crystal port vs C minimap2" do
   # 2.  q-inv vs t-inv  (map-ont, read with inversion — multiple hits)
   # -------------------------------------------------------------------------
   describe "q-inv vs t-inv (inversion)" do
-    c  = c_minimap2(t_inv, q_inv)
+    c = c_minimap2(t_inv, q_inv)
     cr = crystal_minimap2(t_inv, q_inv, "map-ont")
 
     it "C produces 6 hits total (3 per read)" do
@@ -197,13 +197,13 @@ describe "Crystal port vs C minimap2" do
     end
 
     it "read1 primary hit: strand matches C primary" do
-      c_r1  = c.select { |r| r.qname == "read1" }.first
+      c_r1 = c.select { |r| r.qname == "read1" }.first
       cr_r1 = cr.select { |r| r.qname == "read1" }.first
       cr_r1.strand.should eq(c_r1.strand)
     end
 
     it "read2 primary hit: strand matches C primary" do
-      c_r2  = c.select { |r| r.qname == "read2" }.first
+      c_r2 = c.select { |r| r.qname == "read2" }.first
       cr_r2 = cr.select { |r| r.qname == "read2" }.first
       cr_r2.strand.should eq(c_r2.strand)
     end
@@ -223,7 +223,7 @@ describe "Crystal port vs C minimap2" do
     # (the union of all C sub-alignments ± slack).
     it "read1 primary: ref span falls within C's combined ref range (±500 bp slack)" do
       c_r1_all = c.select { |r| r.qname == "read1" }
-      cr_r1    = cr.select { |r| r.qname == "read1" }.first
+      cr_r1 = cr.select { |r| r.qname == "read1" }.first
       c_rs_min = c_r1_all.map(&.rs).min - 500
       c_re_max = c_r1_all.map(&.re).max + 500
       cr_r1.rs.should be >= c_rs_min
@@ -232,7 +232,7 @@ describe "Crystal port vs C minimap2" do
 
     it "read2 primary: ref span falls within C's combined ref range (±500 bp slack)" do
       c_r2_all = c.select { |r| r.qname == "read2" }
-      cr_r2    = cr.select { |r| r.qname == "read2" }.first
+      cr_r2 = cr.select { |r| r.qname == "read2" }.first
       c_rs_min = c_r2_all.map(&.rs).min - 500
       c_re_max = c_r2_all.map(&.re).max + 500
       cr_r2.rs.should be >= c_rs_min
@@ -244,7 +244,7 @@ describe "Crystal port vs C minimap2" do
   # 3.  x3s-qry vs x3s-ref  (splice mode)
   # -------------------------------------------------------------------------
   describe "x3s-qry vs x3s-ref (splice)" do
-    c  = c_minimap2(x3s_ref, x3s_qry, "-cx splice")
+    c = c_minimap2(x3s_ref, x3s_qry, "-cx splice")
     cr = crystal_minimap2(x3s_ref, x3s_qry, "splice")
 
     it "C produces 1 alignment" do

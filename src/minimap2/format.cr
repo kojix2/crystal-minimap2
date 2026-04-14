@@ -4,13 +4,13 @@ module Minimap2
   # Supports PAF (primary), SAM (partial), cs/cigar strings.
   # ---------------------------------------------------------------------------
 
-  BASES_STR = "ACGTN"
+  BASES_STR   = "ACGTN"
   BASES_LOWER = "acgtn"
 
   # Write CIGAR string (e.g. "10M3I5D") to a String::Builder
   private def self.write_cigar(sb : String::Builder, ep : MmExtra, is_eqx : Bool) : Nil
     ep.cigar.each do |c|
-      op  = c & 0xf_u32
+      op = c & 0xf_u32
       len = c >> 4
       sb << len
       sb << CIGAR_STR[op.to_i]?
@@ -21,7 +21,7 @@ module Minimap2
   private def self.cigar_qlen_tlen(ep : MmExtra) : {Int32, Int32}
     q = 0; t = 0
     ep.cigar.each do |c|
-      op  = (c & 0xf).to_i32
+      op = (c & 0xf).to_i32
       len = (c >> 4).to_i32
       case op
       when CIGAR_MATCH, CIGAR_EQ_MATCH, CIGAR_X_MISMATCH
@@ -37,10 +37,10 @@ module Minimap2
 
   # Write cs string (short form with :N for matches).
   private def self.write_cs(sb : String::Builder, tseq : Array(UInt8), qseq : Array(UInt8),
-                              ep : MmExtra, long_form : Bool) : Nil
+                            ep : MmExtra, long_form : Bool) : Nil
     q_off = 0; t_off = 0
     ep.cigar.each do |c|
-      op  = (c & 0xf).to_i32
+      op = (c & 0xf).to_i32
       len = (c >> 4).to_i32
       case op
       when CIGAR_MATCH, CIGAR_EQ_MATCH, CIGAR_X_MISMATCH
@@ -80,7 +80,7 @@ module Minimap2
         t_off += len
       when CIGAR_N_SKIP
         d = tseq[t_off]? || 4_u8; a = tseq[t_off + len - 1]? || 4_u8
-        sb << "~"; sb << BASES_LOWER[d]? ; sb << BASES_LOWER[tseq[t_off + 1]? || 4_u8]?
+        sb << "~"; sb << BASES_LOWER[d]?; sb << BASES_LOWER[tseq[t_off + 1]? || 4_u8]?
         sb << len; sb << BASES_LOWER[tseq[t_off + len - 2]? || 4_u8]?; sb << BASES_LOWER[a]?
         t_off += len
       end
@@ -90,12 +90,12 @@ module Minimap2
   # Write one PAF record.
   # Mirrors mm_write_paf4().
   def self.write_paf(io : IO, mi : MmIdx, t : BSeq1, r : MmReg1,
-                      opt_flag : Int64, rep_len : Int32 = 0) : Nil
+                     opt_flag : Int64, rep_len : Int32 = 0) : Nil
     ep = r.p
 
     # Column 1-12: standard PAF fields
     ctg_name = r.rid >= 0 && r.rid < mi.seq.size ? mi.seq[r.rid].name : "*"
-    ctg_len  = r.rid >= 0 && r.rid < mi.seq.size ? mi.seq[r.rid].len.to_i32 : 0
+    ctg_len = r.rid >= 0 && r.rid < mi.seq.size ? mi.seq[r.rid].len.to_i32 : 0
 
     mapq = r.mapq.clamp(0_u32, 60_u32)
 
@@ -158,13 +158,13 @@ module Minimap2
     mapq = r.mapq.clamp(0_u32, 60_u32)
     flag = 0_u32
 
-    flag |= 0x10_u32 if r.rev            # reverse complement
-    flag |= 0x100_u32 unless r.sam_pri   # not primary
-    flag |= 0x800_u32 if r.is_alt        # supplementary
+    flag |= 0x10_u32 if r.rev          # reverse complement
+    flag |= 0x100_u32 unless r.sam_pri # not primary
+    flag |= 0x800_u32 if r.is_alt      # supplementary
 
     io.print t.name; io.print "\t"; io.print flag
     io.print "\t"; io.print ctg_name
-    io.print "\t"; io.print r.rs + 1  # 1-based
+    io.print "\t"; io.print r.rs + 1 # 1-based
     io.print "\t"; io.print mapq
     io.print "\t"
 
@@ -183,7 +183,7 @@ module Minimap2
       io.print "*"
     end
 
-    io.print "\t*\t0\t0\t"  # RNEXT, PNEXT, TLEN
+    io.print "\t*\t0\t0\t" # RNEXT, PNEXT, TLEN
 
     # SEQ
     if (opt_flag & F_NO_QUAL) == 0
@@ -196,7 +196,7 @@ module Minimap2
     # QUAL
     if t.qual
       if r.rev
-        io.print t.qual.not_nil!.reverse
+        io.print t.qual.try(&.reverse)
       else
         io.print t.qual
       end

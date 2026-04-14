@@ -6,20 +6,20 @@ module Minimap2
   # ---------------------------------------------------------------------------
   def self.run_cli(argv : Array(String)) : Int32
     # ── option state ──────────────────────────────────────────────────────────
-    io  = MmIdxOpt.new
-    mo  = MmMapOpt.new
+    io = MmIdxOpt.new
+    mo = MmMapOpt.new
     idxopt_init(io)
     mapopt_init(mo)
 
-    preset        : String?  = nil
-    out_file      : String?  = nil
-    index_file    : String?  = nil  # -d
-    out_sam               = false   # -a
-    with_cigar            = false   # -c
-    with_eqx              = false   # --eqx
-    n_threads             = 3
-    show_version          = false
-    print_help            = false
+    preset : String? = nil
+    out_file : String? = nil
+    index_file : String? = nil # -d
+    out_sam = false            # -a
+    with_cigar = false         # -c
+    with_eqx = false           # --eqx
+    n_threads = 3
+    show_version = false
+    print_help = false
 
     parser = OptionParser.new do |p|
       p.banner = "Usage: minimap2 [options] <target.fa>|<target.idx> [query.fa] [...]"
@@ -56,7 +56,7 @@ module Minimap2
       end
       p.on("-r NUM", "Chaining bandwidth [#{mo.bw}]") do |v|
         parts = v.split(',')
-        mo.bw      = parts[0].to_i
+        mo.bw = parts[0].to_i
         mo.bw_long = parts[1]?.try(&.to_i) || mo.bw_long
       end
       p.on("-n INT", "Minimal number of minimizers on a chain [#{mo.min_cnt}]") do |v|
@@ -84,17 +84,17 @@ module Minimap2
       end
       p.on("-O INT", "Gap open penalty; comma-sep for dual-affine [#{mo.q},#{mo.q2}]") do |v|
         parts = v.split(',')
-        mo.q  = parts[0].to_i
+        mo.q = parts[0].to_i
         mo.q2 = parts[1]?.try(&.to_i) || mo.q
       end
       p.on("-E INT", "Gap extend penalty; comma-sep for dual-affine [#{mo.e},#{mo.e2}]") do |v|
         parts = v.split(',')
-        mo.e  = parts[0].to_i
+        mo.e = parts[0].to_i
         mo.e2 = parts[1]?.try(&.to_i) || mo.e
       end
       p.on("-z INT", "Z-drop and inversion Z-drop [#{mo.zdrop},#{mo.zdrop_inv}]") do |v|
         parts = v.split(',')
-        mo.zdrop     = parts[0].to_i
+        mo.zdrop = parts[0].to_i
         mo.zdrop_inv = parts[1]?.try(&.to_i) || mo.zdrop
       end
       p.on("-s INT", "Minimal peak DP alignment score [#{mo.min_dp_max}]") do |v|
@@ -173,7 +173,7 @@ module Minimap2
 
     # ── Positional arguments ──────────────────────────────────────────────────
     target_fn = remaining.shift
-    query_fns = remaining   # may be empty (just build index)
+    query_fns = remaining # may be empty (just build index)
 
     # Apply splice-flag cross-correction that doesn't need an index.
     if (mo.flag & F_SPLICE_FOR) != 0 || (mo.flag & F_SPLICE_REV) != 0
@@ -234,18 +234,18 @@ module Minimap2
 
       loop do
         seqs = bf.read_seqs(mo.mini_batch_size,
-                            with_qual: out_sam,
-                            with_comment: false,
-                            frag_mode: false)
+          with_qual: out_sam,
+          with_comment: false,
+          frag_mode: false)
         break if seqs.empty?
 
         # Pre-allocate result slots (one per read × per index).
         # We map every (seq, index) pair independently then write in order.
-        n_pairs  = seqs.size * indices.size
+        n_pairs = seqs.size * indices.size
         # results[i] holds the alignments for pair i; nil means not yet done.
-        results  = Array(Array(MmReg1)?).new(n_pairs, nil)
-        pending  = Atomic(Int32).new(n_pairs)
-        done_ch  = Channel(Nil).new(1)
+        results = Array(Array(MmReg1)?).new(n_pairs, nil)
+        pending = Atomic(Int32).new(n_pairs)
+        done_ch = Channel(Nil).new(1)
 
         seqs.each_with_index do |t, si|
           indices.each_with_index do |mi, ii|
@@ -262,7 +262,7 @@ module Minimap2
         # Write results in original input order (deterministic output).
         seqs.each_with_index do |t, si|
           indices.each_with_index do |mi, ii|
-            regs = results[si * indices.size + ii].not_nil!
+            regs = results[si * indices.size + ii] || [] of MmReg1
             regs.each do |r|
               if out_sam
                 write_sam(out_io, mi, t, r, regs.size, regs, mo.flag)
