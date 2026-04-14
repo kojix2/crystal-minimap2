@@ -6,10 +6,13 @@ BINDIR    = bin
 
 all: minimap2 paftools
 
-minimap2:
+$(BINDIR):
+	mkdir -p $(BINDIR)
+
+minimap2: $(BINDIR)
 	$(CRYSTAL) build $(FLAGS) src/main.cr -o $(BINDIR)/minimap2
 
-paftools:
+paftools: $(BINDIR)
 	$(CRYSTAL) build $(FLAGS) src/paftools_main.cr -o $(BINDIR)/paftools
 
 spec:
