@@ -1,0 +1,175 @@
+name: build
+
+on:
+  push:
+    branches: ["*"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: x86_64-pc-windows-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - name: Install Crystal
+        if: matrix.target != 'x86_64-pc-windows-gnu'
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: latest
+
+      - name: Install Crystal (MinGW64)
+        if: matrix.target == 'x86_64-pc-windows-gnu'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-crystal
+            mingw-w64-x86_64-shards
+            zip
+
+      - name: Set version variables
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION=${{ github.ref_name }}
+          else
+            VERSION="build-$(date +%Y%m%d-%H%M%S)"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "PKG_PREFIX=crystal-minimap2" >> $GITHUB_ENV
+
+      - name: Run tests
+        if: matrix.target != 'x86_64-pc-windows-gnu'
+        run: |
+          make
+          bin/minimap2 --help
+          bin/paftools --help
+          crystal spec
+
+      - name: Run tests (MinGW64)
+        if: matrix.target == 'x86_64-pc-windows-gnu'
+        shell: msys2 {0}
+        run: |
+          make
+          bin/minimap2 --help
+          bin/paftools --help
+          crystal spec
+
+      - name: Build on Linux
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        shell: bash
+        run: |
+          mkdir -p bin
+          docker run --rm -v "$(pwd):/workspace" -w /workspace crystallang/crystal:latest-alpine \
+            sh -lc '
+              crystal build -Dpreview_mt -Dexecution_context --release --static src/main.cr -o bin/minimap2 &&
+              crystal build -Dpreview_mt -Dexecution_context --release --static src/paftools_main.cr -o bin/paftools &&
+              chmod +x bin/minimap2 bin/paftools
+            '
+          ldd bin/minimap2 || echo "Static binary (no dynamic dependencies)"
+          ldd bin/paftools || echo "Static binary (no dynamic dependencies)"
+          file bin/minimap2
+          file bin/paftools
+          bin/minimap2 --help
+          bin/paftools --help
+          PKG=${PKG_PREFIX}-${VERSION}-${{ matrix.target }}
+          mkdir -p $PKG
+          cp bin/minimap2 $PKG/
+          cp bin/paftools $PKG/
+          cp LICENSE $PKG/
+          cp README.md $PKG/
+          tar czf $PKG.tar.gz $PKG
+
+      - name: Build on macOS
+        if: startsWith(matrix.target, 'x86_64-apple-darwin') || startsWith(matrix.target, 'aarch64-apple-darwin')
+        shell: bash
+        run: |
+          make
+          chmod +x bin/minimap2 bin/paftools
+          otool -L bin/minimap2
+          otool -L bin/paftools
+          file bin/minimap2
+          file bin/paftools
+          bin/minimap2 --help
+          bin/paftools --help
+          PKG=${PKG_PREFIX}-${VERSION}-${{ matrix.target }}
+          mkdir -p $PKG
+          cp bin/minimap2 $PKG/
+          cp bin/paftools $PKG/
+          cp LICENSE $PKG/
+          cp README.md $PKG/
+          tar czf $PKG.tar.gz $PKG
+
+      - name: Build on Windows (MSVC)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          crystal build -Dpreview_mt -Dexecution_context --release src/main.cr -o bin/minimap2.exe
+          crystal build -Dpreview_mt -Dexecution_context --release src/paftools_main.cr -o bin/paftools.exe
+          bin/minimap2.exe --help
+          bin/paftools.exe --help
+          $pkg = "$env:PKG_PREFIX-$env:VERSION-${{ matrix.target }}"
+          mkdir $pkg
+          Copy-Item "bin/minimap2.exe" "$pkg/"
+          Copy-Item "bin/paftools.exe" "$pkg/"
+          Copy-Item "LICENSE" "$pkg/"
+          Copy-Item "README.md" "$pkg/"
+          Compress-Archive -Path "$pkg/*" -DestinationPath "$pkg.zip"
+
+      - name: Build on Windows (MinGW64)
+        if: matrix.target == 'x86_64-pc-windows-gnu'
+        shell: msys2 {0}
+        run: |
+          mkdir -p bin
+          crystal build -Dpreview_mt -Dexecution_context --release src/main.cr -o bin/minimap2.exe
+          crystal build -Dpreview_mt -Dexecution_context --release src/paftools_main.cr -o bin/paftools.exe
+          file bin/minimap2.exe
+          file bin/paftools.exe
+          bin/minimap2.exe --help
+          bin/paftools.exe --help
+          PKG=${PKG_PREFIX}-${VERSION}-${{ matrix.target }}
+          mkdir -p $PKG
+          cp bin/minimap2.exe $PKG/
+          cp bin/paftools.exe $PKG/
+          cp LICENSE $PKG/
+          cp README.md $PKG/
+          zip -r $PKG.zip $PKG
+
+      - name: Upload artifacts (non-release)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: crystal-minimap2-${{ matrix.target }}
+          path: |
+            crystal-minimap2-*.tar.gz
+            crystal-minimap2-*.zip
+
+      - name: Upload release assets (release only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            crystal-minimap2-*.tar.gz
+            crystal-minimap2-*.zip
