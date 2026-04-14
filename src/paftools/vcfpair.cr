@@ -43,8 +43,8 @@ module Paftools
         next unless re_ctg.match(t[0])
         ad : Array(Int32)? = nil
         filters = [] of String; ht = [nil, nil] of String?
-        [0, 1].each do |hi|
-          m = /^(\.|[0-9]+)\/(\.|[0-9]+):(\S+)/.match(t[9 + hi])
+        [0, 1].each do |hap_i|
+          m = /^(\.|[0-9]+)\/(\.|[0-9]+):(\S+)/.match(t[9 + hap_i])
           unless m
             STDERR.puts "Malformatted VCF"; return 1
           end
@@ -52,11 +52,11 @@ module Paftools
           the_ad = (ad ||= Array.new(s.size, 0))
           s.each_with_index { |v, j| the_ad[j] += v.to_i }
           if m[1] == '.'
-            filters << "GAP#{hi + 1}"; ht[hi] = "."
+            filters << "GAP#{hap_i + 1}"; ht[hap_i] = "."
           elsif m[1] != m[2]
-            filters << "HET#{hi + 1}"; ht[hi] = "."
+            filters << "HET#{hap_i + 1}"; ht[hap_i] = "."
           else
-            ht[hi] = m[1]
+            ht[hap_i] = m[1]
           end
         end
         t.delete_at(t.size - 1)
@@ -64,7 +64,7 @@ module Paftools
         if is_male
           if t[0] =~ /^(chr)?X/
             if (hv = hgver) && (pars = par[hv]?)
-              in_par = pars.any? { |r| r[0] <= st2 && en2 <= r[1] }
+              in_par = pars.any? { |par_r| par_r[0] <= st2 && en2 <= par_r[1] }
               hap = in_par ? 0 : 2
             end
           elsif t[0] =~ /^(chr)?Y/
@@ -75,7 +75,7 @@ module Paftools
           filters.clear if (hap == 2 && filters[0] == "GAP1") || (hap == 1 && filters[0] == "GAP2")
         end
         t[5] = "30"; t[6] = filters.empty? ? "." : filters.join(";")
-        t << ht.map { |h| h || "." }.join("|") + ":" + (ad || [] of Int32).join(",")
+        t << ht.map { |hap_val| hap_val || "." }.join("|") + ":" + (ad || [] of Int32).join(",")
         puts t.join('\t')
       end
     end

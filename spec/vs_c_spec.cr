@@ -81,17 +81,17 @@ private def crystal_minimap2(ref_fa : String, qry_fa : String, preset : String) 
 
   rows = [] of PafRow
   qry_seqs.each do |qname, qseq|
-    aln.map(qseq, qname).each do |h|
-      next if h.rid < 0
-      tname = aln.seq_names[h.rid]
-      tlen = aln.seq_lengths[h.rid].to_i32
+    aln.map(qseq, qname).each do |hit|
+      next if hit.rid < 0
+      tname = aln.seq_names[hit.rid]
+      tlen = aln.seq_lengths[hit.rid].to_i32
       rows << PafRow.new(
         qname: qname, qlen: qseq.size,
-        qs: h.qs, qe: h.qe,
-        strand: h.rev? ? '-' : '+',
+        qs: hit.qs, qe: hit.qe,
+        strand: hit.rev? ? '-' : '+',
         tname: tname, tlen: tlen,
-        rs: h.rs, re: h.re,
-        mlen: h.mlen, blen: h.blen, mapq: h.mapq.to_i32
+        rs: hit.rs, re: hit.re,
+        mlen: hit.mlen, blen: hit.blen, mapq: hit.mapq.to_i32
       )
     end
   end
@@ -197,23 +197,23 @@ describe "Crystal port vs C minimap2" do
     end
 
     it "read1 primary hit: strand matches C primary" do
-      c_r1 = c.find! { |r| r.qname == "read1" }
-      cr_r1 = cr.find! { |r| r.qname == "read1" }
+      c_r1 = c.find! { |row| row.qname == "read1" }
+      cr_r1 = cr.find! { |row| row.qname == "read1" }
       cr_r1.strand.should eq(c_r1.strand)
     end
 
     it "read2 primary hit: strand matches C primary" do
-      c_r2 = c.find! { |r| r.qname == "read2" }
-      cr_r2 = cr.find! { |r| r.qname == "read2" }
+      c_r2 = c.find! { |row| row.qname == "read2" }
+      cr_r2 = cr.find! { |row| row.qname == "read2" }
       cr_r2.strand.should eq(c_r2.strand)
     end
 
     it "read1 primary: maps to ref contig" do
-      cr.find! { |r| r.qname == "read1" }.tname.should eq("ref")
+      cr.find! { |row| row.qname == "read1" }.tname.should eq("ref")
     end
 
     it "read2 primary: maps to ref contig" do
-      cr.find! { |r| r.qname == "read2" }.tname.should eq("ref")
+      cr.find! { |row| row.qname == "read2" }.tname.should eq("ref")
     end
 
     # Note: C minimap2 splits the inversion into 3 sub-alignments per read.
@@ -222,8 +222,8 @@ describe "Crystal port vs C minimap2" do
     # test that the merged hit still spans the correct region of the reference
     # (the union of all C sub-alignments ± slack).
     it "read1 primary: ref span falls within C's combined ref range (±500 bp slack)" do
-      c_r1_all = c.select { |r| r.qname == "read1" }
-      cr_r1 = cr.find! { |r| r.qname == "read1" }
+      c_r1_all = c.select { |row| row.qname == "read1" }
+      cr_r1 = cr.find! { |row| row.qname == "read1" }
       c_rs_min = c_r1_all.min_of(&.rs) - 500
       c_re_max = c_r1_all.max_of(&.re) + 500
       cr_r1.rs.should be >= c_rs_min
@@ -231,8 +231,8 @@ describe "Crystal port vs C minimap2" do
     end
 
     it "read2 primary: ref span falls within C's combined ref range (±500 bp slack)" do
-      c_r2_all = c.select { |r| r.qname == "read2" }
-      cr_r2 = cr.find! { |r| r.qname == "read2" }
+      c_r2_all = c.select { |row| row.qname == "read2" }
+      cr_r2 = cr.find! { |row| row.qname == "read2" }
       c_rs_min = c_r2_all.min_of(&.rs) - 500
       c_re_max = c_r2_all.max_of(&.re) + 500
       cr_r2.rs.should be >= c_rs_min

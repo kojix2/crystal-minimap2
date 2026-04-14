@@ -41,7 +41,7 @@ module Paftools
 
     if is_vcf
       puts "##fileformat=VCFv4.1"
-      fa_lens.try &.each { |name, l| puts "##contig=<ID=#{name},length=#{l}>" }
+      fa_lens.try &.each { |name, flen| puts "##contig=<ID=#{name},length=#{flen}>" }
       puts "##INFO=<ID=QNAME,Number=1,Type=String,Description=\"Query name\">"
       puts "##INFO=<ID=QSTART,Number=1,Type=Integer,Description=\"Query start\">"
       puts "##INFO=<ID=QSTRAND,Number=1,Type=String,Description=\"Query strand\">"
@@ -114,9 +114,9 @@ module Paftools
         ctg = t[5]; x = t[7].to_i; x_end = t[8].to_i
         query = t[0]; rev = t[4] == "-"; y = rev ? t[3].to_i : t[2].to_i
         cs : String? = nil; tp : String? = nil
-        line.scan(/\t(\S\S:[AZif]):(\S+)/) do |tm|
-          cs = tm[2] if tm[1] == "cs:Z"
-          tp = tm[2] if tm[1] == "tp:A"
+        line.scan(/\t(\S\S:[AZif]):(\S+)/) do |mat|
+          cs = mat[2] if mat[1] == "cs:Z"
+          tp = mat[2] if mat[1] == "tp:A"
         end
         have_s1 = line.includes?("\ts1:i:"); have_s2 = line.includes?("\ts2:i:")
         next if have_s1 && !have_s2
@@ -146,22 +146,22 @@ module Paftools
         flush_out.call(ctg, x)
 
         # Update coverage of buffered variants
-        out_buf.each do |o|
-          o[3] = (o[3].to_i + 1).to_s if o[1].to_i >= x && o[2].to_i <= x_end
+        out_buf.each do |out_row|
+          out_row[3] = (out_row[3].to_i + 1).to_s if out_row[1].to_i >= x && out_row[2].to_i <= x_end
         end
 
         # Drop stale active alignments
-        a_active.reject! { |aa| aa[0] != ctg || aa[2].to_i <= x }
+        a_active.reject! { |act_row| act_row[0] != ctg || act_row[2].to_i <= x }
 
         # Core: parse cs tag for variants
         if t[10].to_i >= min_var_len && (cs_val = cs)
           tot_len += t[10].to_i
           rx = x; qy = y
-          cs_val.scan(/([:=*+\-])([A-Za-z]+|\d+)/) do |cm|
-            op = cm[1][0]; seq = cm[2]
+          cs_val.scan(/([:=*+\-])([A-Za-z]+|\d+)/) do |mat|
+            op = mat[1][0]; seq = mat[2]
             cov = 1
             if op == '*' || op == '+' || op == '-'
-              a_active.each { |aa| cov += 1 if aa[2].to_i > rx }
+              a_active.each { |act_row| cov += 1 if act_row[2].to_i > rx }
             end
             case op
             when '=', ':'

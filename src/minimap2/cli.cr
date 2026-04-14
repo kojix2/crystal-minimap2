@@ -198,7 +198,7 @@ module Minimap2
     while mi = reader.read(n_threads)
       mapopt_update(mo, mi)
       if idx_fn = index_file
-        File.open(idx_fn, "wb") { |f| mi.dump(f) }
+        File.open(idx_fn, "wb") { |file| mi.dump(file) }
       end
       indices << mi
     end
@@ -248,11 +248,11 @@ module Minimap2
         pending = Atomic(Int32).new(n_pairs)
         done_ch = Channel(Nil).new(1)
 
-        seqs.each_with_index do |t, si|
-          indices.each_with_index do |idx, ii|
-            pair_idx = si * indices.size + ii
+        seqs.each_with_index do |bseq, seq_i|
+          indices.each_with_index do |midx, mi_i|
+            pair_idx = seq_i * indices.size + mi_i
             map_ctx.spawn do
-              results[pair_idx] = Minimap2.map(idx, t.l_seq, t.seq, mo, t.name)
+              results[pair_idx] = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name)
               done_ch.send(nil) if pending.sub(1, :sequentially_consistent) == 1
             end
           end
@@ -261,17 +261,17 @@ module Minimap2
         done_ch.receive
 
         # Write results in original input order (deterministic output).
-        seqs.each_with_index do |t, si|
-          indices.each_with_index do |idx, ii|
-            regs = results[si * indices.size + ii] || [] of MmReg1
-            regs.each do |r|
+        seqs.each_with_index do |bseq, seq_i|
+          indices.each_with_index do |midx, mi_i|
+            regs = results[seq_i * indices.size + mi_i] || [] of MmReg1
+            regs.each do |reg|
               if out_sam
-                write_sam(out_io, idx, t, r, regs.size, regs, mo.flag)
+                write_sam(out_io, midx, bseq, reg, regs.size, regs, mo.flag)
               else
-                write_paf(out_io, idx, t, r, mo.flag)
+                write_paf(out_io, midx, bseq, reg, mo.flag)
               end
             end
-            write_sam_unmapped(out_io, t) if out_sam && regs.empty?
+            write_sam_unmapped(out_io, bseq) if out_sam && regs.empty?
           end
         end
       end

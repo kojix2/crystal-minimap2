@@ -5,9 +5,9 @@ module Paftools
     if fn == "-"
       yield STDIN
     elsif fn.ends_with?(".gz") || fn.ends_with?(".bgz")
-      File.open(fn, "rb") { |f| Compress::Gzip::Reader.open(f) { |gz| yield gz } }
+      File.open(fn, "rb") { |file| Compress::Gzip::Reader.open(file) { |gzip| yield gzip } }
     else
-      File.open(fn) { |f| yield f }
+      File.open(fn) { |file| yield file }
     end
   end
 
@@ -16,7 +16,7 @@ module Paftools
   # (mirrors Interval.sort / merge / index_end / find_ovlp in paftools.js).
 
   def self.intv_sort(a : Array({Int32, Int32}))
-    a.sort_by! { |iv| {iv[0], iv[1]} }
+    a.sort_by! { |intv| {intv[0], intv[1]} }
   end
 
   def self.intv_merge(a : Array({Int32, Int32}))
@@ -84,7 +84,7 @@ module Paftools
 
   def self.cov_len(regs : Array({Int32, Int32})) : Int64
     return 0_i64 if regs.empty?
-    s = regs.sort_by { |r| r[0] }
+    s = regs.sort_by { |reg| reg[0] }
     st = s[0][0]; en = s[0][1]; l = 0_i64
     (1...s.size).each do |i|
       if s[i][0] < en

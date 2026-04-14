@@ -64,9 +64,9 @@ module Paftools
 
         if max_div >= 0.0 && max_div < 1.0
           n_gaps = 0; n_opens = 0
-          cg.scan(/(\d+)([MID])/) do |m|
-            next if m[2] == "M"
-            n_gaps += m[1].to_i; n_opens += 1
+          cg.scan(/(\d+)([MID])/) do |mat|
+            next if mat[2] == "M"
+            n_gaps += mat[1].to_i; n_opens += 1
           end
           n_mm = t[10].to_i - t[9].to_i - n_gaps
           n_diff2 = n_mm + n_opens
@@ -77,23 +77,23 @@ module Paftools
         # Build sorted event list: each region contributes start and end events
         a = [] of {Int32, Int32, Int32, Int32} # {query_pos, type(0=st,1=en), reg_idx, ref_pos(-2=unset)}
         r = Array({Int32, Int32}).new(regs.size, {-2, -2})
-        regs.each_with_index do |reg, ri|
+        regs.each_with_index do |reg, reg_i|
           s = reg[0]; e = reg[1]
           if strand == "+"
-            a << {s, 0, ri, -2}; a << {e - 1, 1, ri, -2}
+            a << {s, 0, reg_i, -2}; a << {e - 1, 1, reg_i, -2}
           else
-            a << {t[1].to_i - e, 0, ri, -2}; a << {t[1].to_i - s - 1, 1, ri, -2}
+            a << {t[1].to_i - e, 0, reg_i, -2}; a << {t[1].to_i - s - 1, 1, reg_i, -2}
           end
         end
-        a.sort_by! { |ev| ev[0] }
+        a.sort_by! { |evnt| evnt[0] }
 
         # Walk CIGAR to map query positions to reference
         k = 0; rx = t[7].to_i
         y = strand == "+" ? t[2].to_i : t[1].to_i - t[3].to_i
-        updated_a = a.map { |ev| [ev[0], ev[1], ev[2], ev[3]] }
+        updated_a = a.map { |evnt| [evnt[0], evnt[1], evnt[2], evnt[3]] }
 
-        cg.scan(/(\d+)([MID])/) do |cm|
-          len = cm[1].to_i; op = cm[2][0]
+        cg.scan(/(\d+)([MID])/) do |mat|
+          len = mat[1].to_i; op = mat[2][0]
           if op == 'D'
             rx += len; next
           end
@@ -111,16 +111,16 @@ module Paftools
           y += len; rx += len if op == 'M'
         end
 
-        updated_a.each do |ev|
-          ri = ev[2]
-          if ev[1] == 0
-            r[ri] = {ev[3], r[ri][1]}
+        updated_a.each do |evnt|
+          ri = evnt[2]
+          if evnt[1] == 0
+            r[ri] = {evnt[3], r[ri][1]}
           else
-            r[ri] = {r[ri][0], ev[3] + 1}
+            r[ri] = {r[ri][0], evnt[3] + 1}
           end
         end
-        r.each_with_index do |coords, ri|
-          name = "#{t[0]}_#{regs[ri][0]}_#{regs[ri][1]}"
+        r.each_with_index do |coords, reg_i|
+          name = "#{t[0]}_#{regs[reg_i][0]}_#{regs[reg_i][1]}"
           r0 = coords[0]; r1 = coords[1]
           name += "_t5" if r0 < 0; r0 = t[7].to_i if r0 < 0
           name += "_t3" if r1 < 0; r1 = t[8].to_i if r1 < 0

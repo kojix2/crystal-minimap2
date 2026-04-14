@@ -91,8 +91,8 @@ module Minimap2
   # Mark ALT sequences in hits.
   def self.mark_alt(mi : MmIdx, regs : Array(MmReg1)) : Nil
     return if mi.n_alt == 0
-    regs.each do |r|
-      r.is_alt = (mi.seq[r.rid].is_alt != 0)
+    regs.each do |reg|
+      reg.is_alt = (mi.seq[reg.rid].is_alt != 0)
     end
   end
 
@@ -133,12 +133,12 @@ module Minimap2
   # Set SAM primary flag; returns number of primary hits.
   def self.mark_sam_pri(regs : Array(MmReg1)) : Int32
     n_pri = 0
-    regs.each do |r|
-      if r.id == r.parent
+    regs.each do |reg|
+      if reg.id == reg.parent
         n_pri += 1
-        r.sam_pri = (n_pri == 1)
+        reg.sam_pri = (n_pri == 1)
       else
-        r.sam_pri = false
+        reg.sam_pri = false
       end
     end
     n_pri
@@ -150,16 +150,16 @@ module Minimap2
     max_id = regs.max_of(&.id)
     return if max_id < 0
     tmp = Array(Int32).new(max_id + 1, -1)
-    regs.each_with_index { |r, i| tmp[r.id] = i if r.id >= 0 }
-    regs.each_with_index do |r, i|
-      r.id = i
-      r.parent = if r.parent == PARENT_TMP_PRI
-                   i
-                 elsif r.parent >= 0 && tmp[r.parent] >= 0
-                   tmp[r.parent]
-                 else
-                   PARENT_UNSET
-                 end
+    regs.each_with_index { |reg, i| tmp[reg.id] = i if reg.id >= 0 }
+    regs.each_with_index do |reg, i|
+      reg.id = i
+      reg.parent = if reg.parent == PARENT_TMP_PRI
+                     i
+                   elsif reg.parent >= 0 && tmp[reg.parent] >= 0
+                     tmp[reg.parent]
+                   else
+                     PARENT_UNSET
+                   end
     end
     mark_sam_pri(regs)
   end
@@ -183,8 +183,8 @@ module Minimap2
       cov = [] of UInt64
 
       unless hard_mask_level
-        w.each do |wj|
-          rp = regs[wj]
+        w.each do |widx|
+          rp = regs[widx]
           sj = rp.qs; ej = rp.qe
           next if ej <= si || sj >= ei
           sj = si if sj < si
@@ -194,9 +194,9 @@ module Minimap2
         if cov.size > 0
           radix_sort_64(cov)
           x = si
-          cov.each do |cv|
-            uncov += (cv >> 32).to_i32 - x if (cv >> 32).to_i32 > x
-            x = [u64_to_i32(cv), x].max
+          cov.each do |cov_v|
+            uncov += (cov_v >> 32).to_i32 - x if (cov_v >> 32).to_i32 > x
+            x = [u64_to_i32(cov_v), x].max
           end
           uncov += ei - x if ei > x
         end
@@ -204,8 +204,8 @@ module Minimap2
 
       # Find a parent
       parent_found = false
-      w.each do |wj|
-        rp = regs[wj]
+      w.each do |widx|
+        rp = regs[widx]
         sj = rp.qs; ej = rp.qe
         next if ej <= si || sj >= ei
         min = [ej - sj, ei - si].min
@@ -298,10 +298,10 @@ module Minimap2
   # Filter hits where strand_retained quality is poor.
   def self.filter_strand_retained(regs : Array(MmReg1)) : Int32
     k = 0
-    regs.each_with_index do |r, i|
-      p = r.parent
-      if !r.strand_retained? || p < 0 || p >= regs.size ||
-         r.div < regs[p].div * 5.0_f32 || r.div < 0.01_f32
+    regs.each_with_index do |reg, i|
+      p = reg.parent
+      if !reg.strand_retained? || p < 0 || p >= regs.size ||
+         reg.div < regs[p].div * 5.0_f32 || reg.div < 0.01_f32
         regs[k] = regs[i]; k += 1
       end
     end
@@ -314,13 +314,13 @@ module Minimap2
     aux = Array(UInt64).new(n) { |i| (regs[i].a_off.to_u64 << 32) | i.to_u64 }
     radix_sort_64(aux)
     as_pos = 0
-    aux.each do |av|
-      r = regs[(av & 0xffffffff_u64).to_i32]
-      if r.a_off != as_pos
-        r.cnt.times { |j| a[as_pos + j] = a[r.a_off + j] }
-        r.a_off = as_pos
+    aux.each do |aux_e|
+      reg = regs[(aux_e & 0xffffffff_u64).to_i32]
+      if reg.a_off != as_pos
+        reg.cnt.times { |j| a[as_pos + j] = a[reg.a_off + j] }
+        reg.a_off = as_pos
       end
-      as_pos += r.cnt
+      as_pos += reg.cnt
     end
     as_pos
   end
@@ -381,15 +381,15 @@ module Minimap2
   def self.seg_gen(hash : UInt32, n_segs : Int32, qlens : Array(Int32),
                    regs0 : Array(MmReg1), a : Array(Mm128)) : Array(MmSeg)
     acc_qlen = Array(Int32).new(n_segs + 1, 0)
-    (1..n_segs).each { |s| acc_qlen[s] = acc_qlen[s - 1] + qlens[s - 1] }
+    (1..n_segs).each { |seg_i| acc_qlen[seg_i] = acc_qlen[seg_i - 1] + qlens[seg_i - 1] }
     qlen_sum = acc_qlen[n_segs]
 
     segs = Array(MmSeg).new(n_segs) { MmSeg.new }
     n_regs0 = regs0.size
 
     # Initialize per-segment u arrays with scores
-    n_segs.times do |s|
-      segs[s].u = Array(UInt64).new(n_regs0) { |i| regs0[i].score.to_u64 << 32 }
+    n_segs.times do |seg_i|
+      segs[seg_i].u = Array(UInt64).new(n_regs0) { |i| regs0[i].score.to_u64 << 32 }
     end
 
     # Count anchors per segment per chain
@@ -403,8 +403,8 @@ module Minimap2
     end
 
     # Compact u arrays
-    n_segs.times do |s|
-      sr = segs[s]
+    n_segs.times do |seg_i|
+      sr = segs[seg_i]
       new_u = [] of UInt64
       sr.u.each { |v| new_u << v if v.to_i32 != 0 }
       sr.u = new_u

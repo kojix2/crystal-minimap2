@@ -25,8 +25,8 @@ module Paftools
 
     ens2ucsc = Hash(String, String).new
     if fai = fn_ucsc
-      File.open(fai) do |f|
-        f.each_line(chomp: true) do |line|
+      File.open(fai) do |file|
+        file.each_line(chomp: true) do |line|
           t = line.split('\t'); s = t[0]
           if s =~ /_(random|alt|decoy)$/
             s = s.gsub(/_(random|alt|decoy)$/, "").gsub(/^chr\S+_/, "")
@@ -82,8 +82,8 @@ module Paftools
         if output_gene
           next if t[2] != "gene"
           id = nil; type = ""; name = "N/A"
-          line.scan(re_gtf_gene) { |m| id = m[2] if m[1] == "gene_id"; type = m[2] if m[1] == "gene_type"; name = m[2] if m[1] == "gene_name" }
-          line.scan(re_gff3_gene) { |m| id = m[2] if m[1] == "gene_id" || m[1] == "source_gene"; type = m[2] if m[1] == "gene_type" || m[1] == "gene_biotype"; name = m[2] if m[1] == "gene_name" }
+          line.scan(re_gtf_gene) { |mat| id = mat[2] if mat[1] == "gene_id"; type = mat[2] if mat[1] == "gene_type"; name = mat[2] if mat[1] == "gene_name" }
+          line.scan(re_gff3_gene) { |mat| id = mat[2] if mat[1] == "gene_id" || mat[1] == "source_gene"; type = mat[2] if mat[1] == "gene_type" || mat[1] == "gene_biotype"; name = mat[2] if mat[1] == "gene_name" }
           puts [t[0], t[3].to_i - 1, t[4], "#{id}|#{type}|#{name}", 1000, t[6]].join('\t')
           next
         end
@@ -93,23 +93,23 @@ module Paftools
 
         id = nil; type = ""; name = "N/A"; biotype = ""
         tname = "N/A"; ens_canonical = false
-        line.scan(re_gtf) do |m|
-          case m[1]
-          when "transcript_id"              ; id = m[2]
-          when "transcript_type"            ; type = m[2]
-          when "transcript_biotype", "gbkey"; biotype = m[2]
-          when "gene_name", "gene_id"       ; name = m[2]
-          when "transcript_name"            ; tname = m[2]
-          when "tag"                        ; ens_canonical = true if m[2] == "Ensembl_canonical"
+        line.scan(re_gtf) do |mat|
+          case mat[1]
+          when "transcript_id"              ; id = mat[2]
+          when "transcript_type"            ; type = mat[2]
+          when "transcript_biotype", "gbkey"; biotype = mat[2]
+          when "gene_name", "gene_id"       ; name = mat[2]
+          when "transcript_name"            ; tname = mat[2]
+          when "tag"                        ; ens_canonical = true if mat[2] == "Ensembl_canonical"
           end
         end
-        line.scan(re_gff3) do |m|
-          case m[1]
-          when "transcript_id"              ; id = m[2]
-          when "transcript_type"            ; type = m[2]
-          when "transcript_biotype", "gbkey"; biotype = m[2]
-          when "gene_name", "gene_id"       ; name = m[2]
-          when "transcript_name"            ; tname = m[2]
+        line.scan(re_gff3) do |mat|
+          case mat[1]
+          when "transcript_id"              ; id = mat[2]
+          when "transcript_type"            ; type = mat[2]
+          when "transcript_biotype", "gbkey"; biotype = mat[2]
+          when "gene_name", "gene_id"       ; name = mat[2]
+          when "transcript_name"            ; tname = mat[2]
           end
         end
         next if ens_canon_only && !ens_canonical
@@ -198,8 +198,8 @@ module Paftools
     end
 
     conv = if fn = fn_conv
-             Hash(String, String).new.tap do |h|
-               File.open(fn) { |f| f.each_line(chomp: true) { |l| t = l.split('\t'); h[t[0]] = t[1] } }
+             Hash(String, String).new.tap do |hsh|
+               File.open(fn) { |file| file.each_line(chomp: true) { |line2| t = line2.split('\t'); hsh[t[0]] = t[1] } }
              end
            end
 
@@ -221,7 +221,7 @@ module Paftools
       io.each_line(chomp: true) do |line|
         next if line.starts_with?('@')
         t = line.split('\t')
-        qname = conv.try { |c| c[t[0]]? } || t[0]
+        qname = conv.try { |cov_map| cov_map[t[0]]? } || t[0]
         t[0] = qname
 
         is_pri = false; cigar : String? = nil; a1 : Array(String)? = nil
@@ -254,8 +254,8 @@ module Paftools
 
         next unless cigar
         x0 = 0; x = 0; bs = [] of Int32; bl = [] of Int32
-        cigar.scan(/(\d+)([MIDNSHP=X])/) do |cm|
-          l = cm[1].to_i; op = cm[2][0]
+        cigar.scan(/(\d+)([MIDNSHP=X])/) do |mat|
+          l = mat[1].to_i; op = mat[2][0]
           case op
           when 'M', 'D'; x += l
           when 'N'

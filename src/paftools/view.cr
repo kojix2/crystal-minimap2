@@ -89,7 +89,7 @@ module Paftools
           end
           score = (m = /\tAS:i:(\d+)/.match(line)) ? m[1] : "0"
           buf = ["cigar:", t[0], t[2], t[3], t[4], t[5], t[7], t[8], "+", score]
-          cg.scan(/(\d+)([MIDNSHP=X])/) { |cm| buf << cm[2]; buf << cm[1] }
+          cg.scan(/(\d+)([MIDNSHP=X])/) { |mat| buf << mat[2]; buf << mat[1] }
           puts buf.join(" ")
         when "maf"
           cs = (m = /\tcs:Z:(\S+)/.match(line)) ? m[1] : nil
@@ -98,8 +98,8 @@ module Paftools
           end
           sref = String::Builder.new; sqry = String::Builder.new
           smid = String::Builder.new; elen = [0, 0]
-          cs.scan(/([:=*+\-])(\S+)/) do |cm|
-            update_aln(sref, sqry, smid, cm[1][0], cm[2], elen)
+          cs.scan(/([: =*+\-])(\S+)/) do |mat|
+            update_aln(sref, sqry, smid, mat[1][0], mat[2], elen)
           end
           score = (m = /\tAS:i:(\d+)/.match(line)) ? m[1].to_i : 0
           len = [t[0].size, t[5].size].max
@@ -116,11 +116,11 @@ module Paftools
           end
           # count stats
           n_mm = 0; n_oi = 0; n_od = 0; n_ei = 0; n_ed = 0
-          cs.scan(/([:=*+\-])(\S+)/) do |cm|
-            case cm[1][0]
+          cs.scan(/([: =*+\-])(\S+)/) do |mat|
+            case mat[1][0]
             when '*'; n_mm += 1
-            when '+'; n_oi += 1; n_ei += cm[2].size
-            when '-'; n_od += 1; n_ed += cm[2].size
+            when '+'; n_oi += 1; n_ei += mat[2].size
+            when '-'; n_od += 1; n_ed += mat[2].size
             end
           end
           bare = line.gsub(/\tc[sg]:Z:\S+/, "")
@@ -131,8 +131,8 @@ module Paftools
           sref = ""; sqry = ""; smid = ""; sref_len = 0
           slen = [0, 0]; elen = [0, 0]; n_blocks = 0
 
-          cs.scan(/([:=*+\-])(\S+)/) do |cm|
-            op = cm[1][0]; seq = cm[2]
+          cs.scan(/([: =*+\-])(\S+)/) do |mat|
+            op = mat[1][0]; seq = mat[2]
             rest_len = op == '*' ? 1 : (op == ':' ? seq.to_i : seq.size)
             start_pos = 0
 

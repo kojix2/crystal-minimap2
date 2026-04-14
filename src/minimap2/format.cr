@@ -9,9 +9,9 @@ module Minimap2
 
   # Write CIGAR string (e.g. "10M3I5D") to a String::Builder
   private def self.write_cigar(sb : String::Builder, ep : MmExtra, is_eqx : Bool) : Nil
-    ep.cigar.each do |c|
-      op = c & 0xf_u32
-      len = c >> 4
+    ep.cigar.each do |entry|
+      op = entry & 0xf_u32
+      len = entry >> 4
       sb << len
       sb << CIGAR_STR[op.to_i]?
     end
@@ -20,9 +20,9 @@ module Minimap2
   # Compute CIGAR length in query / target bases
   private def self.cigar_qlen_tlen(ep : MmExtra) : {Int32, Int32}
     q = 0; t = 0
-    ep.cigar.each do |c|
-      op = (c & 0xf).to_i32
-      len = (c >> 4).to_i32
+    ep.cigar.each do |entry|
+      op = (entry & 0xf).to_i32
+      len = (entry >> 4).to_i32
       case op
       when CIGAR_MATCH, CIGAR_EQ_MATCH, CIGAR_X_MISMATCH
         q += len; t += len
@@ -39,9 +39,9 @@ module Minimap2
   private def self.write_cs(sb : String::Builder, tseq : Array(UInt8), qseq : Array(UInt8),
                             ep : MmExtra, long_form : Bool) : Nil
     q_off = 0; t_off = 0
-    ep.cigar.each do |c|
-      op = (c & 0xf).to_i32
-      len = (c >> 4).to_i32
+    ep.cigar.each do |entry|
+      op = (entry & 0xf).to_i32
+      len = (entry >> 4).to_i32
       case op
       when CIGAR_MATCH, CIGAR_EQ_MATCH, CIGAR_X_MISMATCH
         l_tmp = 0
@@ -143,8 +143,8 @@ module Minimap2
   def self.write_sam_hdr(io : IO, mi : MmIdx?, version : String = LIB_VERSION) : Nil
     io.puts "@HD\tVN:1.6\tSO:unsorted\tGO:query"
     if mi
-      mi.seq.each do |s|
-        io.puts "@SQ\tSN:#{s.name}\tLN:#{s.len}"
+      mi.seq.each do |seq_rec|
+        io.puts "@SQ\tSN:#{seq_rec.name}\tLN:#{seq_rec.len}"
       end
     end
     io.puts "@PG\tID:minimap2\tPN:minimap2\tVN:#{version}"

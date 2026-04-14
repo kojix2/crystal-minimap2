@@ -221,8 +221,8 @@ module Minimap2
       ni = u64_to_i32(u[j])
       src = (w[i].y >> 32).to_i32 # position in b[]
       u2[i] = u[j]
-      ni.times do |m|
-        result[k] = b[src + m]
+      ni.times do |off|
+        result[k] = b[src + off]
         k += 1
       end
     end
@@ -304,9 +304,9 @@ module Minimap2
       if max_ii < 0 || a[i].x - a[max_ii].x > max_dist_x
         max = INT32_MIN
         max_ii = -1_i64
-        (st...i).each do |jj|
-          if max < f[jj]
-            max = f[jj]; max_ii = jj
+        (st...i).each do |anc_j|
+          if max < f[anc_j]
+            max = f[anc_j]; max_ii = anc_j
           end
         end
       end
@@ -324,7 +324,7 @@ module Minimap2
     end
 
     u_arr, n_u, v_arr, n_v = chain_backtrack(n, f, p, v, t, min_cnt, min_sc, max_drop)
-    u_arr[0...n_u].each { |u| u_out << u }
+    u_arr[0...n_u].each { |u_val| u_out << u_val }
 
     return [] of Mm128 if n_u == 0
 
@@ -467,7 +467,7 @@ module Minimap2
     end
 
     u_arr, n_u, v_arr, n_v = chain_backtrack(n, f, p, v, t, min_cnt, min_sc, max_drop)
-    u_arr[0...n_u].each { |u| u_out << u }
+    u_arr[0...n_u].each { |u_val| u_out << u_val }
 
     return [] of Mm128 if n_u == 0
 

@@ -1,0 +1,7 @@
+# Ameba configuration for crystal-minimap2
+# Disables Metrics/CyclomaticComplexity for C algorithm port files
+# which have inherently high cyclomatic complexity that cannot be
+# reasonably reduced without major refactoring
+
+Metrics/CyclomaticComplexity:
+  Enabled: false

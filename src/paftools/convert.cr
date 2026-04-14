@@ -68,8 +68,8 @@ module Paftools
         m_len = 0; n_span = 0; mm = 0; have_m = false; have_ext = false
         cigar_list = [] of {Int32, Char} # for MD reconstruction
 
-        t[5].scan(/(\d+)([MIDNSHP=X])/) do |cm|
-          l = cm[1].to_i; op = cm[2][0]; n_cigar += 1
+        t[5].scan(/(\d+)([MIDNSHP=X])/) do |mat|
+          l = mat[1].to_i; op = mat[2][0]; n_cigar += 1
           case op
           when 'M'; m_len += l; have_m = true
           when '='; m_len += l; have_ext = true
@@ -228,7 +228,7 @@ module Paftools
             raise "Inconsistent delta" if re_coord - rs - x != qe - qs - y
             cigar << ((re_coord - rs - x) << 4)
             blen = 0; cstr = [] of String
-            cigar.each { |c| blen += c >> 4; cstr << "#{c >> 4}#{"MID"[c & 0xf]}" }
+            cigar.each { |cig| blen += cig >> 4; cstr << "#{cig >> 4}#{"MID"[cig & 0xf]}" }
             puts [qname, qlen, qs, qe, strand > 0 ? "+" : "-",
                   rname, rlen, rs, re_coord, blen - nm, blen, 0,
                   "NM:i:#{nm}", "cg:Z:#{cstr.join}"].join('\t')
@@ -285,12 +285,12 @@ module Paftools
         end
         next unless cs
         ts = String::Builder.new; qs_buf = String::Builder.new
-        cs.scan(/([:=*+\-])([A-Za-z]+|\d+)/) do |m|
-          case m[1][0]
-          when '='; ts << m[2]; qs_buf << m[2]
-          when '+'; qs_buf << m[2].upcase
-          when '-'; ts << m[2].upcase
-          when '*'; ts << m[2][0].upcase; qs_buf << m[2][1].upcase
+        cs.scan(/([:=*+\-])([A-Za-z]+|\d+)/) do |mat|
+          case mat[1][0]
+          when '='; ts << mat[2]; qs_buf << mat[2]
+          when '+'; qs_buf << mat[2].upcase
+          when '-'; ts << mat[2].upcase
+          when '*'; ts << mat[2][0].upcase; qs_buf << mat[2][1].upcase
           when ':'; raise "Long cs required (got short form ':'); rerun with --cs=long"
           end
         end

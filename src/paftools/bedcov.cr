@@ -23,8 +23,8 @@ module Paftools
     # Read regions BED and build interval index per chromosome
     reg_ivs = Hash(String, Array({Int32, Int32})).new
     reg_idx = Hash(String, Array(Int32)).new
-    File.open(rest[0]) do |f|
-      f.each_line(chomp: true) do |line|
+    File.open(rest[0]) do |file|
+      file.each_line(chomp: true) do |line|
         t = line.split('\t'); next if t.size < 3
         chr = t[0]; bst = t[1].to_i; ben = t[2].to_i
         reg_ivs[chr] ||= [] of {Int32, Int32}
@@ -55,15 +55,15 @@ module Paftools
           segs << {bst, ben}
         end
 
-        feat_len = segs.sum { |s| s[1] - s[0] }.to_i64
+        feat_len = segs.sum { |seg| seg[1] - seg[0] }.to_i64
         tot_len += feat_len
 
         next unless reg_ivs.has_key?(chr)
         ivs = reg_ivs[chr]; idx = reg_idx[chr]
         overlap = [] of {Int32, Int32}
         segs.each do |seg|
-          intv_ovlp(ivs, idx, seg[0], seg[1]).each do |ov|
-            overlap << {[ov[0], seg[0]].max, [ov[1], seg[1]].min}
+          intv_ovlp(ivs, idx, seg[0], seg[1]).each do |ovlp|
+            overlap << {[ovlp[0], seg[0]].max, [ovlp[1], seg[1]].min}
           end
         end
         feat_hit = overlap.empty? ? 0_i64 : cov_len(overlap)

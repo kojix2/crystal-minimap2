@@ -72,8 +72,8 @@ module Minimap2
     # -------------------------------------------------------------------------
     def add(a : Array(Mm128)) : Nil
       mask = (1 << @b) - 1
-      a.each do |m|
-        @b_arr[((m.x >> 8) & mask).to_i32].a << m
+      a.each do |anc|
+        @b_arr[((anc.x >> 8) & mask).to_i32].a << anc
       end
     end
 
@@ -193,11 +193,11 @@ module Minimap2
     # -------------------------------------------------------------------------
     def index_name : Bool
       has_dup = false
-      @seq.each_with_index do |s, i|
-        if @name_map.has_key?(s.name)
+      @seq.each_with_index do |srec, i|
+        if @name_map.has_key?(srec.name)
           has_dup = true
         else
-          @name_map[s.name] = i.to_u32
+          @name_map[srec.name] = i.to_u32
         end
       end
       if has_dup && Minimap2.verbose >= 2
@@ -245,11 +245,11 @@ module Minimap2
       io.write_bytes(@b.to_u32, IO::ByteFormat::LittleEndian)
       io.write_bytes(@n_seq, IO::ByteFormat::LittleEndian)
       io.write_bytes(@flag.to_u32, IO::ByteFormat::LittleEndian)
-      @seq.each do |s|
-        name_b = s.name.to_slice
+      @seq.each do |srec|
+        name_b = srec.name.to_slice
         io.write_byte(name_b.size.to_u8)
         io.write(name_b)
-        io.write_bytes(s.len, IO::ByteFormat::LittleEndian)
+        io.write_bytes(srec.len, IO::ByteFormat::LittleEndian)
       end
       (1 << @b).times do |i|
         bkt = @b_arr[i]
@@ -336,10 +336,10 @@ module Minimap2
       return 0_i64 if fn == "-"
       return -1_i64 unless File.exists?(fn)
       magic = Bytes.new(4)
-      File.open(fn, "rb") do |f|
-        return 0_i64 if f.read(magic) < 4
+      File.open(fn, "rb") do |file|
+        return 0_i64 if file.read(magic) < 4
         return 0_i64 unless magic == IDX_MAGIC.to_slice[0...4]
-        return f.size.to_i64
+        return file.size.to_i64
       end
     rescue
       -1_i64
@@ -362,26 +362,26 @@ module Minimap2
         break if seqs.empty?
 
         # Assign RIDs and store metadata
-        seqs.each do |s|
-          seq_rec = IdxSeq.new(s.name, sum_len, s.l_seq.to_u32)
+        seqs.each do |seq_r|
+          seq_rec = IdxSeq.new(seq_r.name, sum_len, seq_r.l_seq.to_u32)
           mi.seq << seq_rec
           mi.n_seq += 1
           if (flag & I_NO_SEQ) == 0
-            total = sum_len + s.l_seq
+            total = sum_len + seq_r.l_seq
             mi.ensure_seq_capacity(total)
-            s.l_seq.times do |j|
-              c = SEQ_NT4_TABLE[s.seq.byte_at(j).to_i].to_i
+            seq_r.l_seq.times do |j|
+              c = SEQ_NT4_TABLE[seq_r.seq.byte_at(j).to_i].to_i
               mi.seq4_set(sum_len + j, c)
             end
           end
-          s.rid = (mi.n_seq - 1).to_u32
-          sum_len += s.l_seq
+          seq_r.rid = (mi.n_seq - 1).to_u32
+          sum_len += seq_r.l_seq
         end
 
         # Sketch
-        seqs.each do |s|
-          next if s.l_seq == 0
-          Minimap2.mm_sketch(s.seq, s.l_seq, mi.w, mi.k, s.rid, (flag & I_HPC) != 0, p)
+        seqs.each do |seq_r|
+          next if seq_r.l_seq == 0
+          Minimap2.mm_sketch(seq_r.seq, seq_r.l_seq, mi.w, mi.k, seq_r.rid, (flag & I_HPC) != 0, p)
         end
 
         # Add to buckets
@@ -424,7 +424,7 @@ module Minimap2
       end
 
       seqs.each_with_index do |s_str, i|
-        name = names.try { |ns| ns[i]? } || ""
+        name = names.try { |name_arr| name_arr[i]? } || ""
         offset = sum_len
         len = s_str.size.to_u32
         mi.seq << IdxSeq.new(name, offset, len)
@@ -486,7 +486,7 @@ module Minimap2
         )
       end
       if mi
-        @out_io.try { |o| mi.dump(o) }
+        @out_io.try { |out_io| mi.dump(out_io) }
         mi.index = @n_parts
         @n_parts += 1
       end

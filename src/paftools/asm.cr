@@ -6,9 +6,9 @@ module Paftools
   private def self.n_stat(lens : Array(Int32), tot : Int64, quantile : Float64) : Int32
     sorted = lens.sort.reverse!
     sum = 0_i64
-    sorted.each do |l|
-      return l if sum <= quantile * tot && sum + l > quantile * tot
-      sum += l
+    sorted.each do |len|
+      return len if sum <= quantile * tot && sum + len > quantile * tot
+      sum += len
     end
     0
   end
@@ -16,9 +16,9 @@ module Paftools
   private def self.aun_stat(lens : Array(Int32), tot : Int64) : Float64
     sorted = lens.sort.reverse!
     x = 0_i64; y = 0.0
-    sorted.each do |l|
-      l2 = x + l <= tot ? l : (tot - x).to_i
-      x += l; y += l2.to_f * l2.to_f / tot.to_f
+    sorted.each do |len|
+      l2 = x + len <= tot ? len : (tot - x).to_i
+      x += len; y += l2.to_f * l2.to_f / tot.to_f
       break if x >= tot
     end
     y
@@ -43,7 +43,7 @@ module Paftools
     end
 
     ref_len = 0_i64
-    File.open(rest[0]) { |f| f.each_line(chomp: true) { |l| ref_len += l.split('\t')[1].to_i64 } }
+    File.open(rest[0]) { |file| file.each_line(chomp: true) { |line2| ref_len += line2.split('\t')[1].to_i64 } }
 
     labels = ["Length", "l_cov", "Rcov%", "Rdup%", "Qcov%", "NG75", "NG50", "NGA50", "AUNGA",
               "#breaks", "bp(#{min_seg_len},0)", "bp(#{min_seg_len},10k)"]
@@ -51,8 +51,8 @@ module Paftools
     header = ["Metric"]
     n_asm = rest.size - 1
 
-    n_asm.times do |ai|
-      fn = rest[ai + 1]
+    n_asm.times do |asm_i|
+      fn = rest[asm_i + 1]
       label = fn.sub(/\.paf(\.gz)?$/, "")
       header << label
 
@@ -108,9 +108,9 @@ module Paftools
           nms = (m = /\tNM:i:(\d+)/.match(line)) ? m[1].to_i : nil
           if cg && nms
             n_m = 0; n_gapo = 0; n_gaps = 0
-            cg.scan(/(\d+)([MID])/) do |cm|
-              l = cm[1].to_i
-              if cm[2] == "M"
+            cg.scan(/(\d+)([MID])/) do |mat|
+              l = mat[1].to_i
+              if mat[2] == "M"
                 n_m += l
               else
                 n_gapo += 1; n_gaps += l
@@ -137,7 +137,7 @@ module Paftools
       qcov += process_query.call(qblocks) if last_qname
 
       asm_len = 0_i64; asm_lens = [] of Int32
-      query.each { |_, l| asm_len += l; asm_lens << l }
+      query.each { |_, qlen| asm_len += qlen; asm_lens << qlen }
       rst[0] << asm_len.to_s
       rst[5] << n_stat(asm_lens, ref_len, 0.75).to_s
       rst[6] << n_stat(asm_lens, ref_len, 0.50).to_s
@@ -211,12 +211,12 @@ module Paftools
     end
 
     process_qry = ->(a : Array(Array(Int32))) {
-      b = a.select { |r| r[4] >= r[5] * min_iden }
+      b = a.select { |row| row[4] >= row[5] * min_iden }
       cnt = [0, 0.0_f64, 0]
       return cnt if b.empty?
-      n_full = b.count { |r| r[3] - r[2] >= r[1] * min_cov }
+      n_full = b.count { |row| row[3] - row[2] >= row[1] * min_cov }
       cnt[0] = n_full
-      s = b.sort_by { |r| r[2] }
+      s = b.sort_by { |row| row[2] }
       l_cov2 = 0; st2 = s[0][2]; en2 = s[0][3]
       (1...s.size).each do |j|
         if s[j][2] <= en2
@@ -236,8 +236,8 @@ module Paftools
     header = [] of String
     refpos = Hash(String, Array(String)).new
 
-    n_fn.times do |fi|
-      fn = rest[fi]
+    n_fn.times do |fn_i|
+      fn = rest[fn_i]
       label = fn.sub(/\.paf(\.gz)?$/, "")
       header << label
       a = [] of Array(Int32)
@@ -246,20 +246,20 @@ module Paftools
           t = line.split('\t')
           next if t.size < 12
           ql = t[1].to_i; qs2 = t[2].to_i; qe2 = t[3].to_i; mlen = t[9].to_i; blen = t[10].to_i
-          refpos[t[0]] = [t[0], t[1], t[5], t[7], t[8]] if fi == 0
+          refpos[t[0]] = [t[0], t[1], t[5], t[7], t[8]] if fn_i == 0
           gene[t[0]] ||= Array(Array(Int32 | Float64)?).new(n_fn, nil)
           if a.size > 0 && t[0] != a[0][0].to_s
-            gene[a[0][0].to_s]?.try { |arr| arr[fi] = process_qry.call(a) }
+            gene[a[0][0].to_s]?.try { |arr| arr[fn_i] = process_qry.call(a) }
             a = [] of Array(Int32)
           end
           a << [t[0].hash.to_i32, ql, qs2, qe2, mlen, blen]
         end
       end
-      gene[a[0][0].to_s]?.try { |arr| arr[fi] = process_qry.call(a) } unless a.empty?
+      gene[a[0][0].to_s]?.try { |arr| arr[fn_i] = process_qry.call(a) } unless a.empty?
     end
 
     # Deduplicate reference: keep longest non-overlapping gene per locus
-    gene_list = refpos.values.sort_by! { |g| {g[2], g[3].to_i} }
+    gene_list = refpos.values.sort_by! { |gen| {gen[2], gen[3].to_i} }
     gene_nr = Hash(String, Bool).new; last_j = 0
     (1...gene_list.size).each do |j|
       if gene_list[j][2] != gene_list[last_j][2] || gene_list[j][3].to_i >= gene_list[last_j][4].to_i
@@ -273,33 +273,33 @@ module Paftools
     col1 = ["full_sgl", "full_dup", "frag", "part50+", "part10+", "part10-", "dup_cnt", "dup_sum"]
     rst2 = Array.new(col1.size) { Array.new(n_fn, 0) }
 
-    gene.each do |g, arr|
+    gene.each do |gname, arr|
       next unless ref_row = arr[0]
       ref_cnt = ref_row[0].as(Int32)
       next if ref_cnt != 1
-      next unless gene_nr[g]
-      next if auto_only && (rp = refpos[g]?) && rp[2] =~ /^(chr)?[XY]$/
-      n_fn.times do |fi|
-        if (ga = arr[fi]).nil?
-          rst2[5][fi] += 1
-          puts "M\t#{header[fi]}\t#{refpos[g]?.try(&.join("\t"))}" if print_err
+      next unless gene_nr[gname]
+      next if auto_only && (rp = refpos[gname]?) && rp[2] =~ /^(chr)?[XY]$/
+      n_fn.times do |fn_i|
+        if (ga = arr[fn_i]).nil?
+          rst2[5][fn_i] += 1
+          puts "M\t#{header[fn_i]}\t#{refpos[gname]?.try(&.join("\t"))}" if print_err
         else
           cnt = ga
           case cnt[0].as(Int32)
-          when 1 then rst2[0][fi] += 1
+          when 1 then rst2[0][fn_i] += 1
           when .>(1)
-            rst2[1][fi] += 1
-            puts "D\t#{header[fi]}\t#{refpos[g]?.try(&.join("\t"))}" if print_err
+            rst2[1][fn_i] += 1
+            puts "D\t#{header[fn_i]}\t#{refpos[gname]?.try(&.join("\t"))}" if print_err
           else
             cov_frac = cnt[1].as(Float64)
             if cov_frac >= min_cov
-              rst2[2][fi] += 1; puts "F\t#{header[fi]}\t#{refpos[g]?.try(&.join("\t"))}" if print_err
+              rst2[2][fn_i] += 1; puts "F\t#{header[fn_i]}\t#{refpos[gname]?.try(&.join("\t"))}" if print_err
             elsif cov_frac >= 0.5
-              rst2[3][fi] += 1
+              rst2[3][fn_i] += 1
             elsif cov_frac >= 0.1
-              rst2[4][fi] += 1
+              rst2[4][fn_i] += 1
             else
-              rst2[5][fi] += 1; puts "0\t#{header[fi]}\t#{refpos[g]?.try(&.join("\t"))}" if print_err
+              rst2[5][fn_i] += 1; puts "0\t#{header[fn_i]}\t#{refpos[gname]?.try(&.join("\t"))}" if print_err
             end
           end
         end

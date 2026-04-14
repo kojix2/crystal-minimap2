@@ -6,7 +6,7 @@ module Minimap2
   # X31 string hash (used to hash query names).
   private def self.x31_hash_string(s : String) : UInt32
     h = 0_u32
-    s.each_byte { |c| h = h &* 31_u32 &+ c.to_u32 }
+    s.each_byte { |byte| h = h &* 31_u32 &+ byte.to_u32 }
     h
   end
 
@@ -104,37 +104,37 @@ module Minimap2
 
     a = [] of Mm128
 
-    seeds.each do |q|
-      q.n.times do |k|
-        r = q.cr[k]
-        skip, is_self = skip_seed?(opt.flag, r, q, qname, qlen, mi)
+    seeds.each do |seed|
+      seed.n.times do |k|
+        r = seed.cr[k]
+        skip, is_self = skip_seed?(opt.flag, r, seed, qname, qlen, mi)
         next if skip
 
         rid = (r >> 32).to_i32
         rpos = (r.to_u32 >> 1).to_i32
         p = Mm128.max
 
-        if (r & 1) == (q.q_pos & 1) # forward strand
+        if (r & 1) == (seed.q_pos & 1) # forward strand
           p = Mm128.new(
             (r & 0xffffffff00000000_u64) | rpos.to_u64,
-            q.q_span.to_u64 << 32 | (q.q_pos >> 1).to_u64
+            seed.q_span.to_u64 << 32 | (seed.q_pos >> 1).to_u64
           )
         elsif (opt.flag & F_QSTRAND) == 0 # reverse strand, non-qstrand mode
           p = Mm128.new(
             1_u64 << 63 | (r & 0xffffffff00000000_u64) | rpos.to_u64,
-            q.q_span.to_u64 << 32 | (qlen - ((q.q_pos >> 1) + 1 - q.q_span.to_i32) - 1).to_u64
+            seed.q_span.to_u64 << 32 | (qlen - ((seed.q_pos >> 1) + 1 - seed.q_span.to_i32) - 1).to_u64
           )
         else # reverse strand, qstrand mode
           s = mi.seq[rid]
           p = Mm128.new(
-            1_u64 << 63 | (r & 0xffffffff00000000_u64) | (s.len.to_i32 - (rpos + 1 - q.q_span.to_i32) - 1).to_u64,
-            q.q_span.to_u64 << 32 | (q.q_pos >> 1).to_u64
+            1_u64 << 63 | (r & 0xffffffff00000000_u64) | (s.len.to_i32 - (rpos + 1 - seed.q_span.to_i32) - 1).to_u64,
+            seed.q_span.to_u64 << 32 | (seed.q_pos >> 1).to_u64
           )
         end
 
         # Apply segment ID and flags
-        p = Mm128.new(p.x, p.y | (q.seg_id.to_u64 << SEED_SEG_SHIFT))
-        p = Mm128.new(p.x, p.y | SEED_TANDEM) if q.is_tandem?
+        p = Mm128.new(p.x, p.y | (seed.seg_id.to_u64 << SEED_SEG_SHIFT))
+        p = Mm128.new(p.x, p.y | SEED_TANDEM) if seed.is_tandem?
         p = Mm128.new(p.x, p.y | SEED_SELF) if is_self
 
         a << p
@@ -213,7 +213,7 @@ module Minimap2
        n_segs == 1 && n_regs0 > 1 && !a.empty?
       st = u64_to_i32(a[0].y); en = u64_to_i32(a[u64_to_i32(u[0] & 0xffffffff_u64) - 1].y)
       if qlen_sum - (en - st) > opt.rmq_rescue_size || en - st > qlen_sum * opt.rmq_rescue_ratio
-        n_a_new = u.sum { |uu| u64_to_i32(uu) }
+        n_a_new = u.sum { |u_val| u64_to_i32(u_val) }
         u.clear
         a = a.first(n_a_new)
         radix_sort_128x(a)
@@ -287,15 +287,15 @@ module Minimap2
       regs_arr[0] = regs0.first(n_ref)
     else
       segs = seg_gen(hash, n_segs, qlens, regs0, a)
-      n_segs.times do |s|
-        seg_regs = gen_regs(hash, qlens[s], segs[s].u, segs[s].a, false)
-        seg_regs.each { |r| r.seg_split = true; r.seg_id = s.to_u32 }
+      n_segs.times do |seg_i|
+        seg_regs = gen_regs(hash, qlens[seg_i], segs[seg_i].u, segs[seg_i].a, false)
+        seg_regs.each { |reg| reg.seg_split = true; reg.seg_id = seg_i.to_u32 }
         n_ref_seg = seg_regs.size
-        seg_regs = align_skeleton(opt, mi, qlens[s], seqs[s],
-          pointerof(n_ref_seg), seg_regs, segs[s].a)
+        seg_regs = align_skeleton(opt, mi, qlens[seg_i], seqs[seg_i],
+          pointerof(n_ref_seg), seg_regs, segs[seg_i].a)
         set_mapq2(seg_regs, n_ref_seg, opt.min_chain_score, opt.a, rep_len, is_sr, is_splice)
-        n_regs_arr[s] = n_ref_seg
-        regs_arr[s] = seg_regs.first(n_ref_seg)
+        n_regs_arr[seg_i] = n_ref_seg
+        regs_arr[seg_i] = seg_regs.first(n_ref_seg)
       end
     end
   end
@@ -362,27 +362,27 @@ module Minimap2
 
     # Map a query string; yields MmReg1 hits.
     def map(seq : String, qname : String? = nil, & : MmReg1 -> Nil) : Nil
-      @indices.each do |mi|
-        regs = Minimap2.map(mi, seq.size, seq, @map_opt, qname)
-        regs.each { |r| yield r }
+      @indices.each do |midx|
+        regs = Minimap2.map(midx, seq.size, seq, @map_opt, qname)
+        regs.each { |reg| yield reg }
       end
     end
 
     # Map a query string; returns Array of hits.
     def map(seq : String, qname : String? = nil) : Array(MmReg1)
       result = [] of MmReg1
-      map(seq, qname) { |r| result << r }
+      map(seq, qname) { |reg| result << reg }
       result
     end
 
     # Return the index sequences.
     def seq_names : Array(String)
-      @indices.flat_map { |mi| mi.seq.map(&.name) }
+      @indices.flat_map { |midx| midx.seq.map(&.name) }
     end
 
     # Return the index sequence lengths.
     def seq_lengths : Array(UInt32)
-      @indices.flat_map { |mi| mi.seq.map(&.len) }
+      @indices.flat_map { |midx| midx.seq.map(&.len) }
     end
   end
 end

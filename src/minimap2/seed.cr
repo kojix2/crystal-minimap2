@@ -9,7 +9,7 @@ module Minimap2
     return if mv.size <= q_occ_max || q_occ_frac <= 0.0_f32 || q_occ_max <= 0
 
     # Sort a copy by minimizer hash, track original indices
-    a = mv.map_with_index { |m, i| Mm128.new(m.x, i.to_u64) }
+    a = mv.map_with_index { |anc, i| Mm128.new(anc.x, i.to_u64) }
     radix_sort_128x(a)
 
     # Mark overly frequent minimizers (zero out their x)
@@ -28,9 +28,9 @@ module Minimap2
 
     # Compact (remove zeroed entries)
     j = 0
-    mv.each_with_index do |m, k|
+    mv.each_with_index do |anc, k|
       mv[j] = mv[k]
-      j += 1 if m.x != 0
+      j += 1 if anc.x != 0
     end
     mv.delete_at(j, mv.size - (j)) if mv.size > (j)
   end
@@ -40,10 +40,10 @@ module Minimap2
   # Returns an Array(MmSeed) with all matches (including high-freq ones).
   def self.seed_collect_all(mi : MmIdx, mv : Array(Mm128)) : Array(MmSeed)
     seeds = [] of MmSeed
-    mv.each_with_index do |p, i|
-      q_pos = p.y.to_u32
-      q_span = (p.x & 0xff).to_u32
-      cr = mi.get(p.x >> 8)
+    mv.each_with_index do |anc, i|
+      q_pos = anc.y.to_u32
+      q_span = (anc.x & 0xff).to_u32
+      cr = mi.get(anc.x >> 8)
       next unless cr
       next if cr.empty?
       seed = MmSeed.new(
@@ -51,13 +51,13 @@ module Minimap2
         q_pos: q_pos,
         q_span: q_span,
         cr: cr.dup,
-        seg_id: (p.y >> 32).to_u32
+        seg_id: (anc.y >> 32).to_u32
       )
       # mark tandem if adjacent minimizers share the same hash
-      if i > 0 && p.x >> 8 == mv[i - 1].x >> 8
+      if i > 0 && anc.x >> 8 == mv[i - 1].x >> 8
         seed = MmSeed.new(seed.n, seed.q_pos, seed.q_span, seed.cr, seed.seg_id, false, true)
       end
-      if i < mv.size - 1 && p.x >> 8 == mv[i + 1].x >> 8
+      if i < mv.size - 1 && anc.x >> 8 == mv[i + 1].x >> 8
         seed = MmSeed.new(seed.n, seed.q_pos, seed.q_span, seed.cr, seed.seg_id, false, true)
       end
       seeds << seed
@@ -74,7 +74,7 @@ module Minimap2
     n = seeds.size
     return if n <= 1
 
-    n_hi = seeds.count { |s| s.n > max_occ }
+    n_hi = seeds.count { |seed| seed.n > max_occ }
     return if n_hi == 0
 
     last0 = -1
@@ -131,9 +131,9 @@ module Minimap2
     if dist > 0 && max_max_occ > max_occ
       seed_select(seeds, qlen, max_occ, max_max_occ, dist)
     else
-      seeds.each_with_index do |s, i|
-        if s.n > max_occ
-          seeds[i] = MmSeed.new(s.n, s.q_pos, s.q_span, s.cr, s.seg_id, true, s.is_tandem?)
+      seeds.each_with_index do |seed, i|
+        if seed.n > max_occ
+          seeds[i] = MmSeed.new(seed.n, seed.q_pos, seed.q_span, seed.cr, seed.seg_id, true, seed.is_tandem?)
         end
       end
     end
@@ -145,13 +145,13 @@ module Minimap2
     mini_pos = [] of UInt64
     out = [] of MmSeed
 
-    seeds.each do |q|
+    seeds.each do |seed|
       if (@@dbg_flag & DBG_SEED_FREQ) != 0
-        STDERR.printf("SF\t%d\t%d\t%d\n", q.q_pos >> 1, q.n, q.flt? ? 1 : 0)
+        STDERR.printf("SF\t%d\t%d\t%d\n", seed.q_pos >> 1, seed.n, seed.flt? ? 1 : 0)
       end
-      if q.flt?
-        en = (q.q_pos >> 1) + 1
-        st = en - q.q_span.to_i32
+      if seed.flt?
+        en = (seed.q_pos >> 1) + 1
+        st = en - seed.q_span.to_i32
         if st > rep_en
           rep_len += rep_en - rep_st
           rep_st = st; rep_en = en
@@ -159,9 +159,9 @@ module Minimap2
           rep_en = en
         end
       else
-        n_a += q.n
-        mini_pos << (q.q_span.to_u64 << 32 | (q.q_pos >> 1).to_u64)
-        out << q
+        n_a += seed.n
+        mini_pos << (seed.q_span.to_u64 << 32 | (seed.q_pos >> 1).to_u64)
+        out << seed
       end
     end
     rep_len += rep_en - rep_st

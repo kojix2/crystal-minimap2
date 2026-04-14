@@ -73,21 +73,21 @@ module Paftools
         m_bases = 0; tl = 0; ql = 0; sclip = 0; clip = [0, 0]
         n_cop = 0; n_gapo = 0; n_gap_all = 0; l_match = 0
 
-        cigar.try &.scan(/(\d+)([MIDNSHP=X])/) do |cm|
-          l = cm[1].to_i; op = cm[2][0]; n_cop += 1
+        cigar.try &.scan(/(\d+)([MIDNSHP=X])/) do |mat|
+          l = mat[1].to_i; op = mat[2][0]; n_cop += 1
           case op
           when 'M', '=', 'X'; tl += l; ql += l; m_bases += l; l_match += l
           when 'I'
             ql += l
             bin = l < 50 ? 0 : l < 100 ? 1 : l < 300 ? 2 : l < 400 ? 3 : l < 1000 ? 4 : 5
             n_gap[0][bin] += 1
-            puts [t[0], ql, is_rev ? '-' : '+', tname, rs + tl, 'I', l].join('\t') if gap_out_len.try { |g| l >= g }
+            puts [t[0], ql, is_rev ? '-' : '+', tname, rs + tl, 'I', l].join('\t') if gap_out_len.try { |gol| l >= gol }
             n_gapo += 1; n_gap_all += l
           when 'D'
             tl += l
             bin = l < 50 ? 0 : l < 100 ? 1 : l < 300 ? 2 : l < 400 ? 3 : l < 1000 ? 4 : 5
             n_gap[1][bin] += 1
-            puts [t[0], ql, is_rev ? '-' : '+', tname, rs + tl, 'D', l].join('\t') if gap_out_len.try { |g| l >= g }
+            puts [t[0], ql, is_rev ? '-' : '+', tname, rs + tl, 'D', l].join('\t') if gap_out_len.try { |gol| l >= gol }
             n_gapo += 1; n_gap_all += l
           when 'N'; tl += l
           when 'S'; clip[m_bases == 0 ? 0 : 1] = l; sclip += l
@@ -124,9 +124,9 @@ module Paftools
       puts "Number of mapped bases: #{l_cov}"
       puts "Number of substitutions: #{n_sub}"
       [{"insertions", 0}, {"deletions", 1}].each do |(name, gi)|
-        [[0, 50], [50, 100], [100, 300], [300, 400], [400, 1000], [-1, -1]].each_with_index do |(lo, hi), bi|
+        [[0, 50], [50, 100], [100, 300], [300, 400], [400, 1000], [-1, -1]].each_with_index do |(lo, hi), band_i|
           range = hi < 0 ? "[1000,inf)" : "[#{lo},#{hi})"
-          puts "Number of #{name} in #{range}: #{n_gap[gi][bi]}"
+          puts "Number of #{name} in #{range}: #{n_gap[gi][band_i]}"
         end
       end
     end
