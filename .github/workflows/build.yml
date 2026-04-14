@@ -46,6 +46,7 @@ jobs:
           install: >-
             mingw-w64-x86_64-crystal
             mingw-w64-x86_64-shards
+            make
             zip
 
       - name: Set version variables
@@ -63,18 +64,18 @@ jobs:
         if: matrix.target != 'x86_64-pc-windows-gnu'
         run: |
           make
-          bin/minimap2 --help
-          bin/paftools --help
-          crystal spec
+          bin/minimap2 --version
+          bin/paftools version
+          make spec
 
       - name: Run tests (MinGW64)
         if: matrix.target == 'x86_64-pc-windows-gnu'
         shell: msys2 {0}
         run: |
           make
-          bin/minimap2 --help
-          bin/paftools --help
-          crystal spec
+          bin/minimap2 --version
+          bin/paftools version
+          make spec
 
       - name: Build on Linux
         if: matrix.target == 'x86_64-unknown-linux-musl'
@@ -83,15 +84,15 @@ jobs:
           mkdir -p bin
           docker run --rm -v "$(pwd):/workspace" -w /workspace crystallang/crystal:latest-alpine \
             sh -lc '
-              make FLAGS="-Dpreview_mt -Dexecution_context --release --static" &&
+              make FLAGS="--release --static" &&
               chmod +x bin/minimap2 bin/paftools
             '
           ldd bin/minimap2 || echo "Static binary (no dynamic dependencies)"
           ldd bin/paftools || echo "Static binary (no dynamic dependencies)"
           file bin/minimap2
           file bin/paftools
-          bin/minimap2 --help
-          bin/paftools --help
+          bin/minimap2 --version
+          bin/paftools version
           PKG=${PKG_PREFIX}-${VERSION}-${{ matrix.target }}
           mkdir -p $PKG
           cp bin/minimap2 $PKG/
@@ -104,14 +105,14 @@ jobs:
         if: startsWith(matrix.target, 'x86_64-apple-darwin') || startsWith(matrix.target, 'aarch64-apple-darwin')
         shell: bash
         run: |
-          make FLAGS="-Dpreview_mt -Dexecution_context --release"
+          make FLAGS="--release"
           chmod +x bin/minimap2 bin/paftools
           otool -L bin/minimap2
           otool -L bin/paftools
           file bin/minimap2
           file bin/paftools
-          bin/minimap2 --help
-          bin/paftools --help
+          bin/minimap2 --version
+          bin/paftools version
           PKG=${PKG_PREFIX}-${VERSION}-${{ matrix.target }}
           mkdir -p $PKG
           cp bin/minimap2 $PKG/
@@ -127,8 +128,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path bin | Out-Null
           crystal build -Dpreview_mt -Dexecution_context --release src/main.cr -o bin/minimap2.exe
           crystal build -Dpreview_mt -Dexecution_context --release src/paftools_main.cr -o bin/paftools.exe
-          bin/minimap2.exe --help
-          bin/paftools.exe --help
+          bin/minimap2.exe --version
+          bin/paftools.exe version
           $pkg = "$env:PKG_PREFIX-$env:VERSION-${{ matrix.target }}"
           mkdir $pkg
           Copy-Item "bin/minimap2.exe" "$pkg/"
@@ -142,11 +143,11 @@ jobs:
         shell: msys2 {0}
         run: |
           mkdir -p bin
-          make FLAGS="-Dpreview_mt -Dexecution_context --release"
+          make FLAGS="--release"
           file bin/minimap2.exe
           file bin/paftools.exe
-          bin/minimap2.exe --help
-          bin/paftools.exe --help
+          bin/minimap2.exe --version
+          bin/paftools.exe version
           PKG=${PKG_PREFIX}-${VERSION}-${{ matrix.target }}
           mkdir -p $PKG
           cp bin/minimap2.exe $PKG/
