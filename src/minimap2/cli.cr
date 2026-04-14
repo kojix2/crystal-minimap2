@@ -22,6 +22,7 @@ module Minimap2
     print_help = false
 
     parser = OptionParser.new do |p|
+      p.summary_width = 12
       p.banner = "Usage: minimap2 [options] <target.fa>|<target.idx> [query.fa] [...]"
 
       # ── Preset ──────────────────────────────────────────────────────────────
