@@ -23,7 +23,7 @@ require "./spec_helper"
 # ---------------------------------------------------------------------------
 
 MINIMAP2_BIN = ENV["MINIMAP2_BIN"]? || "minimap2"
-TEST_DIR     = File.join(__DIR__, "../../minimap2/test")
+TEST_DIR     = File.join(__DIR__, "../minimap2/test")
 
 # Parse the first 12 PAF columns into a named tuple.
 record PafRow,

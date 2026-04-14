@@ -72,14 +72,13 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          git clone --depth 1 https://github.com/lh3/minimap2.git cminimap2
-          make -C cminimap2
-          ./cminimap2/minimap2 --version
+          make -C minimap2
+          ./minimap2/minimap2 --version
 
       - name: Run specs against reference minimap2
         if: runner.os != 'Windows'
         run: |
-          MINIMAP2_BIN="$PWD/cminimap2/minimap2" make spec
+          MINIMAP2_BIN="$PWD/minimap2/minimap2" make spec
 
       - name: Run tests (MinGW64)
         if: matrix.target == 'x86_64-pc-windows-gnu'
@@ -93,15 +92,14 @@ jobs:
         if: matrix.target == 'x86_64-pc-windows-gnu'
         shell: msys2 {0}
         run: |
-          git clone --depth 1 https://github.com/lh3/minimap2.git cminimap2
-          make -C cminimap2
-          ./cminimap2/minimap2.exe --version
+          make -C minimap2
+          ./minimap2/minimap2.exe --version
 
       - name: Run specs against reference minimap2 (MinGW64)
         if: matrix.target == 'x86_64-pc-windows-gnu'
         shell: msys2 {0}
         run: |
-          MINIMAP2_BIN="$PWD/cminimap2/minimap2.exe" make spec
+          MINIMAP2_BIN="$PWD/minimap2/minimap2.exe" make spec
 
       - name: Build on Linux
         if: matrix.target == 'x86_64-unknown-linux-musl'
