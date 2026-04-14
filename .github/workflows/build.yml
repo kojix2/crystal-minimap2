@@ -46,6 +46,7 @@ jobs:
           install: >-
             mingw-w64-x86_64-crystal
             mingw-w64-x86_64-shards
+            mingw-w64-x86_64-gcc
             make
             zip
 
@@ -61,12 +62,24 @@ jobs:
           echo "PKG_PREFIX=crystal-minimap2" >> $GITHUB_ENV
 
       - name: Run tests
-        if: matrix.target != 'x86_64-pc-windows-gnu'
+        if: runner.os != 'Windows'
         run: |
           make
           bin/minimap2 --version
           bin/paftools version
-          make spec
+
+      - name: Build reference minimap2 (C)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/lh3/minimap2.git cminimap2
+          make -C cminimap2
+          ./cminimap2/minimap2 --version
+
+      - name: Run specs against reference minimap2
+        if: runner.os != 'Windows'
+        run: |
+          MINIMAP2_BIN="$PWD/cminimap2/minimap2" make spec
 
       - name: Run tests (MinGW64)
         if: matrix.target == 'x86_64-pc-windows-gnu'
@@ -75,7 +88,20 @@ jobs:
           make
           bin/minimap2 --version
           bin/paftools version
-          make spec
+
+      - name: Build reference minimap2 (C, MinGW64)
+        if: matrix.target == 'x86_64-pc-windows-gnu'
+        shell: msys2 {0}
+        run: |
+          git clone --depth 1 https://github.com/lh3/minimap2.git cminimap2
+          make -C cminimap2
+          ./cminimap2/minimap2.exe --version
+
+      - name: Run specs against reference minimap2 (MinGW64)
+        if: matrix.target == 'x86_64-pc-windows-gnu'
+        shell: msys2 {0}
+        run: |
+          MINIMAP2_BIN="$PWD/cminimap2/minimap2.exe" make spec
 
       - name: Build on Linux
         if: matrix.target == 'x86_64-unknown-linux-musl'
@@ -84,7 +110,7 @@ jobs:
           mkdir -p bin
           docker run --rm -v "$(pwd):/workspace" -w /workspace crystallang/crystal:latest-alpine \
             sh -lc '
-              make FLAGS="--release --static" &&
+              make FLAGS="-Dpreview_mt -Dexecution_context --release --static" &&
               chmod +x bin/minimap2 bin/paftools
             '
           ldd bin/minimap2 || echo "Static binary (no dynamic dependencies)"
@@ -105,7 +131,7 @@ jobs:
         if: startsWith(matrix.target, 'x86_64-apple-darwin') || startsWith(matrix.target, 'aarch64-apple-darwin')
         shell: bash
         run: |
-          make FLAGS="--release"
+          make FLAGS="-Dpreview_mt -Dexecution_context --release"
           chmod +x bin/minimap2 bin/paftools
           otool -L bin/minimap2
           otool -L bin/paftools
@@ -143,7 +169,7 @@ jobs:
         shell: msys2 {0}
         run: |
           mkdir -p bin
-          make FLAGS="--release"
+          make FLAGS="-Dpreview_mt -Dexecution_context --release"
           file bin/minimap2.exe
           file bin/paftools.exe
           bin/minimap2.exe --version
