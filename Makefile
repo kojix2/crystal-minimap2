@@ -1,5 +1,5 @@
 CRYSTAL   = crystal
-FLAGS     = -Dpreview_mt -Dexecution_context
+FLAGS     = --release -Dpreview_mt -Dexecution_context
 BINDIR    = bin
 
 .PHONY: all minimap2 paftools spec clean
