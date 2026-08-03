@@ -252,7 +252,12 @@ module Minimap2
           indices.each_with_index do |midx, mi_i|
             pair_idx = seq_i * indices.size + mi_i
             map_ctx.spawn do
-              results[pair_idx] = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name)
+              begin
+                results[pair_idx] = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name)
+              rescue ex
+                STDERR.puts "[WARNING] mapping failed for '#{bseq.name}': #{ex.message}"
+                results[pair_idx] = [] of MmReg1
+              end
               done_ch.send(nil) if pending.sub(1, :sequentially_consistent) == 1
             end
           end

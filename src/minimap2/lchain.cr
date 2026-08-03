@@ -94,8 +94,7 @@ module Minimap2
 
     loop do
       t[i] = 2
-      end_i = i
-      i = p[i]
+      end_i = i = p[i]
       s = i < 0 ? u64_to_i32(z[k].x) : (u64_to_i32(z[k].x) - f[i])
       if s > max_s
         max_s = s
@@ -167,13 +166,14 @@ module Minimap2
     n_u = 0
 
     # Second pass: populate
+    # Always walk the full chain to keep t[] consistent with the first pass.
     (n_z - 1).downto(0) do |k|
       next unless t[z[k].y] == 0
       n_v0 = n_v
       end_i = chain_bk_end(max_drop, z, f, p, t, k)
       i = z[k].y.to_i64
       while i != end_i
-        v_arr[n_v] = i.to_i32
+        v_arr[n_v] = i.to_i32 if n_v < v_arr.size
         n_v += 1
         t[i] = 1
         i = p[i]
