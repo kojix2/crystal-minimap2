@@ -20,11 +20,7 @@ module Minimap2
       op = entry & 0xf_u32
       len = entry >> 4
       next if len == 0
-      if ep.cigar.empty? || (ep.cigar.last & 0xf_u32) != op
-        ep.cigar << entry
-      else
-        ep.cigar[-1] = ep.cigar[-1] &+ (len << 4)
-      end
+      push_cigar(ep.cigar, op.to_i32, len.to_i32)
     end
   end
 
@@ -41,11 +37,6 @@ module Minimap2
     buf
   end
 
-  # Compute complement of 4-bit base.
-  private def self.comp4(c : UInt8) : UInt8
-    c < 4_u8 ? (3_u8 - c) : c
-  end
-
   # Encode a query string (ASCII) into 4-bit bases using SEQ_NT4_TABLE.
   def self.encode_seq(s : String | Bytes) : Array(UInt8)
     bytes = s.is_a?(String) ? s.to_slice : s
@@ -55,8 +46,9 @@ module Minimap2
   end
 
   # Build reverse complement of a 4-bit encoded sequence.
+  # Delegates to ksw2.seq_rev_comp (shared implementation).
   def self.rev_comp(seq : Array(UInt8)) : Array(UInt8)
-    seq.reverse.map { |byte| comp4(byte) }
+    seq_rev_comp(seq.size, seq)
   end
 
   # Core alignment between a pair of query and target windows.

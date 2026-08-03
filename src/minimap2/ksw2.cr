@@ -92,7 +92,7 @@ module Minimap2
   # ---------------------------------------------------------------------------
   # push_cigar helper: append an operation, merging with previous if same op.
   # ---------------------------------------------------------------------------
-  private def self.push_cigar(cigar : Array(UInt32), op : Int32, len : Int32) : Nil
+  def self.push_cigar(cigar : Array(UInt32), op : Int32, len : Int32) : Nil
     if cigar.empty? || (cigar.last & 0xf) != op
       cigar << (len.to_u32 << 4 | op.to_u32)
     else
@@ -366,7 +366,7 @@ module Minimap2
   # Reverse complement a 4-bit encoded sequence.
   # ---------------------------------------------------------------------------
   def self.seq_rev_comp(len : Int32, seq : Array(UInt8)) : Array(UInt8)
-    result = Array(UInt8).new(len)
+    result = Array(UInt8).new(len, 0_u8)
     len.times do |i|
       c = seq[len - 1 - i]
       result[i] = c < 4 ? (3_u8 - c) : c
