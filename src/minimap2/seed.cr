@@ -8,8 +8,8 @@ module Minimap2
   def self.seed_mz_flt(mv : Array(Mm128), q_occ_max : Int32, q_occ_frac : Float32) : Nil
     return if mv.size <= q_occ_max || q_occ_frac <= 0.0_f32 || q_occ_max <= 0
 
-    # Sort a copy by minimizer hash, track original indices
-    a = mv.map_with_index { |anc, i| Mm128.new(anc.x, i.to_u64) }
+    # Build index array sorted by minimizer hash — avoids copying full Mm128.
+    a = Array(Mm128).new(mv.size) { |i| Mm128.new(mv[i].x, i.to_u64) }
     radix_sort_128x(a)
 
     # Mark overly frequent minimizers (zero out their x)

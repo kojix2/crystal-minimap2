@@ -105,41 +105,127 @@ module Minimap2
   end
 
   # ---------------------------------------------------------------------------
-  # Radix sort for Array(Mm128) by key = x (equivalent to radix_sort_128x)
-  # In Crystal we just use Array#sort_by! which is introsort; the radix sort
-  # matters for performance but not correctness.
+  # Radix sort for Array(Mm128) by key = x (8-bit radix, 8 passes).
+  # Uses a pre-allocated class-level buffer to avoid per-call GC allocation.
   # ---------------------------------------------------------------------------
+  @@sort_buf = [] of Mm128
+
   def self.radix_sort_128x(a : Array(Mm128)) : Nil
-    a.sort_by!(&.x)
+    radix_sort_128x_impl(a, 0, a.size)
   end
 
   def self.radix_sort_128x(a : Array(Mm128), from : Int32, to : Int32) : Nil
-    # sort sub-slice [from, to)
-    slice = a[from...to]
-    slice.sort_by!(&.x)
-    a[from...to] = slice
+    radix_sort_128x_impl(a, from, to)
+  end
+
+  private def self.radix_sort_128x_impl(a : Array(Mm128), from : Int32, to : Int32) : Nil
+    n = to - from
+    return if n <= 1
+
+    # Ensure class-level buffer is large enough (never shrinks).
+    if @@sort_buf.size < n
+      @@sort_buf = Array(Mm128).new(n, Mm128.max)
+    end
+    buf = @@sort_buf
+
+    count = StaticArray(Int32, 256).new(0)
+
+    8.times do |pass|
+      shift = pass * 8
+      count.fill(0)
+
+      # Count frequencies
+      from.upto(to - 1) do |i|
+        count[((a[i].x >> shift) & 0xff).to_i32] += 1
+      end
+
+      # Skip if all in one bucket
+      non_zero = 0
+      256.times { |bi| non_zero += 1 if count[bi] > 0 }
+      next if non_zero <= 1
+
+      # Prefix sum
+      sum = 0
+      256.times do |bi|
+        c = count[bi]
+        count[bi] = sum
+        sum += c
+      end
+
+      # Scatter to buffer
+      from.upto(to - 1) do |i|
+        b = ((a[i].x >> shift) & 0xff).to_i32
+        buf[count[b]] = a[i]
+        count[b] += 1
+      end
+
+      # Copy back
+      from.upto(to - 1) do |i|
+        a[i] = buf[i - from]
+      end
+    end
   end
 
   # ---------------------------------------------------------------------------
-  # Radix sort for Array(UInt64) (equivalent to radix_sort_64)
+  # Radix sort for Array(UInt64) — 8-bit radix, 8 passes.
   # ---------------------------------------------------------------------------
+  @@sort_buf64 = [] of UInt64
+
   def self.radix_sort_64(a : Array(UInt64)) : Nil
-    a.sort!
+    radix_sort_64_impl(a, 0, a.size)
   end
 
   def self.radix_sort_64(a : Array(UInt64), from : Int32, to : Int32) : Nil
-    slice = a[from...to]
-    slice.sort!
-    a[from...to] = slice
+    radix_sort_64_impl(a, from, to)
+  end
+
+  private def self.radix_sort_64_impl(a : Array(UInt64), from : Int32, to : Int32) : Nil
+    n = to - from
+    return if n <= 1
+
+    if @@sort_buf64.size < n
+      @@sort_buf64 = Array(UInt64).new(n, 0_u64)
+    end
+    buf = @@sort_buf64
+
+    count = StaticArray(Int32, 256).new(0)
+
+    8.times do |pass|
+      shift = pass * 8
+      count.fill(0)
+
+      from.upto(to - 1) do |i|
+        count[((a[i] >> shift) & 0xff).to_i32] += 1
+      end
+
+      non_zero = 0
+      256.times { |bi| non_zero += 1 if count[bi] > 0 }
+      next if non_zero <= 1
+
+      sum = 0
+      256.times do |bi|
+        c = count[bi]
+        count[bi] = sum
+        sum += c
+      end
+
+      from.upto(to - 1) do |i|
+        b = ((a[i] >> shift) & 0xff).to_i32
+        buf[count[b]] = a[i]
+        count[b] += 1
+      end
+
+      from.upto(to - 1) do |i|
+        a[i] = buf[i - from]
+      end
+    end
   end
 
   # ---------------------------------------------------------------------------
-  # k-th smallest element (equivalent to ks_ksmall_uint32_t)
-  # Uses a partial sort / selection algorithm.
+  # k-th smallest element (in-place sort, no .dup needed for callers)
   # ---------------------------------------------------------------------------
   def self.ks_ksmall_uint32(a : Array(UInt32), kk : Int32) : UInt32
-    arr = a.dup
-    arr.sort!
-    arr[kk]
+    a.sort!
+    a[kk]
   end
 end

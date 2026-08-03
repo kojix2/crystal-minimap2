@@ -100,9 +100,11 @@ module Minimap2
   private def self.collect_seed_hits(opt : MmMapOpt, max_occ : Int32, mi : MmIdx,
                                      qname : String?, mv : Array(Mm128), qlen : Int32,
                                      use_heap : Bool) : {Array(Mm128), Int32, Array(UInt64)}
-    seeds, _, rep_len, mini_pos = collect_matches(qlen, max_occ, opt.max_max_occ, opt.occ_dist, mi, mv)
+    seeds, n_a, rep_len, mini_pos = collect_matches(qlen, max_occ, opt.max_max_occ, opt.occ_dist, mi, mv)
 
-    a = [] of Mm128
+    # Pre-allocate anchor array to avoid repeated growth via <<.
+    a = Array(Mm128).new(n_a.to_i32, Mm128.max)
+    a_idx = 0
 
     seeds.each do |seed|
       seed.n.times do |k|
@@ -137,10 +139,12 @@ module Minimap2
         p = Mm128.new(p.x, p.y | SEED_TANDEM) if seed.is_tandem?
         p = Mm128.new(p.x, p.y | SEED_SELF) if is_self
 
-        a << p
+        a[a_idx] = p
+        a_idx += 1
       end
     end
 
+    a.delete_at(a_idx, a.size - a_idx) if a_idx < a.size
     radix_sort_128x(a)
     {a, rep_len, mini_pos}
   end
