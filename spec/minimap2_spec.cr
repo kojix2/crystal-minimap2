@@ -177,6 +177,26 @@ describe Minimap2 do
       ez2 = Minimap2.ksw_extz2(q.size, q, t2.size, t2, 5, mat, 4, 2, -1, -1, 0, 0)
       ez1.score.should be > ez2.score
     end
+
+    it "uses CIGAR operations that consume the correct sequence" do
+      mat = Minimap2.ksw_gen_simple_mat(5, 2, 4, 1)
+
+      q = Minimap2.encode_seq("ACGTACGT")
+      t = Minimap2.encode_seq("ACGTTACGT")
+      ez = Minimap2.ksw_extz2(q.size, q, t.size, t, 5, mat, 4, 2, -1, -1, 0, 0)
+      query_bases = ez.cigar.sum { |entry| (entry & 0xf) == Minimap2::CIGAR_DEL ? 0_u32 : entry >> 4 }
+      target_bases = ez.cigar.sum { |entry| (entry & 0xf) == Minimap2::CIGAR_INS ? 0_u32 : entry >> 4 }
+      query_bases.should eq(q.size)
+      target_bases.should eq(t.size)
+
+      q = Minimap2.encode_seq("ACGTTACGT")
+      t = Minimap2.encode_seq("ACGTACGT")
+      ez = Minimap2.ksw_extz2(q.size, q, t.size, t, 5, mat, 4, 2, -1, -1, 0, 0)
+      query_bases = ez.cigar.sum { |entry| (entry & 0xf) == Minimap2::CIGAR_DEL ? 0_u32 : entry >> 4 }
+      target_bases = ez.cigar.sum { |entry| (entry & 0xf) == Minimap2::CIGAR_INS ? 0_u32 : entry >> 4 }
+      query_bases.should eq(q.size)
+      target_bases.should eq(t.size)
+    end
   end
 
   # ---------------------------------------------------------------------------

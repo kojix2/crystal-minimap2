@@ -285,19 +285,19 @@ module Minimap2
         when 0 # match/mismatch
           push_cigar(ez.cigar, CIGAR_MATCH, 1)
           ci -= 1; cj -= 1
-        when 1, 3 # deletion (E or E2)
-          push_cigar(ez.cigar, CIGAR_DEL, 1)
-          ci -= 1
-        when 2, 4 # insertion (F or F2)
+        when 1, 3 # insertion (E or E2; move along query)
           push_cigar(ez.cigar, CIGAR_INS, 1)
+          ci -= 1
+        when 2, 4 # deletion (F or F2; move along target)
+          push_cigar(ez.cigar, CIGAR_DEL, 1)
           cj -= 1
         else
           break
         end
       end
       # leading indels
-      push_cigar(ez.cigar, CIGAR_DEL, ci + 1) if ci >= 0
-      push_cigar(ez.cigar, CIGAR_INS, cj + 1) if cj >= 0
+      push_cigar(ez.cigar, CIGAR_INS, ci + 1) if ci >= 0
+      push_cigar(ez.cigar, CIGAR_DEL, cj + 1) if cj >= 0
 
       # Reverse CIGAR (we built it backwards)
       ez.cigar.reverse! unless (flag & KSW_EZ_REV_CIGAR) != 0
