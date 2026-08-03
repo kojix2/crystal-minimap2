@@ -50,7 +50,7 @@ module Minimap2
         n: cr.size,
         q_pos: q_pos,
         q_span: q_span,
-        cr: cr.dup,
+        cr: cr,  # no .dup — cr is read-only during mapping; avoids per-minimizer allocation
         seg_id: (anc.y >> 32).to_u32
       )
       # mark tandem if adjacent minimizers share the same hash

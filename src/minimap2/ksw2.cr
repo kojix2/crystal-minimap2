@@ -185,15 +185,23 @@ module Minimap2
       j_lo.upto(j_hi) do |j|
         # Deletion from above (E)
         h_up = j < tlen ? h_prev[j] : neg
-        e_val = [h_up - qe, e_arr[j] - e].max
-        e2_val = [h_up - qe2, e2_arr[j] - e2].max
+        tmp = h_up - qe
+        e_val = e_arr[j] - e
+        e_val = tmp if tmp > e_val
         e_arr[j] = e_val
+        tmp = h_up - qe2
+        e2_val = e2_arr[j] - e2
+        e2_val = tmp if tmp > e2_val
         e2_arr[j] = e2_val
 
         # Insertion from left (F)
         h_left = j > j_lo ? h_curr[j - 1] : neg
-        f_new = [h_left - qe, f - e].max
-        f2_new = [h_left - qe2, f2 - e2].max
+        tmp = h_left - qe
+        f_new = f - e
+        f_new = tmp if tmp > f_new
+        tmp = h_left - qe2
+        f2_new = f2 - e2
+        f2_new = tmp if tmp > f2_new
         f = f_new
         f2 = f2_new
 
@@ -202,8 +210,12 @@ module Minimap2
         ti = target[j].to_i32
         sc = (h_diag == neg) ? neg : h_diag + mat[qi * m + ti].to_i32
 
-        # H
-        h = [sc, e_val, e2_val, f_new, f2_new].max
+        # H — max of 5 values without allocating an array
+        h = sc
+        h = e_val if e_val > h
+        h = e2_val if e2_val > h
+        h = f_new if f_new > h
+        h = f2_new if f2_new > h
         h_curr[j] = h
 
         # Backtrack info
