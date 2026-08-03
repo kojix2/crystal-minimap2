@@ -239,13 +239,82 @@ module Minimap2
     regs
   end
 
-  # estimate divergence from chaining
+  # Estimate divergence from minimizer matching.
+  # Port of mm_est_err() from esterr.c.
   def self.est_err(mi : MmIdx, qlen : Int32, regs : Array(MmReg1),
                    a : Array(Mm128), n_mini_pos : Int32, mini_pos : Array(UInt64)) : Nil
-    # Simplified: compute div from mlen/blen
-    regs.each do |reg|
-      next if reg.cnt <= 0 || reg.blen <= 0
-      reg.div = reg.mlen >= reg.blen ? 0.0_f32 : (reg.blen - reg.mlen).to_f32 / reg.blen.to_f32
+    return if n_mini_pos == 0
+
+    # Compute average k-mer span
+    sum_k = 0_u64
+    n_mini_pos.times { |i| sum_k += (mini_pos[i] >> 32) & 0xff }
+    avg_k = sum_k.to_f / n_mini_pos
+
+    regs.each do |r|
+      r.div = -1.0_f32
+      next if r.cnt <= 0
+
+      # Get query position for a minimizer, reverting reverse-strand to
+      # the forward-strand coordinate.  Mirrors get_for_qpos() in esterr.c.
+      get_qpos = ->(idx : Int32) : Int32 do
+        entry = a[idx]
+        x = u64_to_i32(entry.y)
+        q_span = ((entry.y >> 32) & 0xff).to_i32
+        if entry.x >> 63 == 1
+          qlen - 1 - (x + 1 - q_span)
+        else
+          x
+        end
+      end
+
+      # Binary search for the first anchor's query position in mini_pos.
+      # For reverse strand, anchors are stored in reverse query order,
+      # so the first forward-strand anchor is at a_off + cnt - 1.
+      first_idx = r.rev? ? r.a_off + r.cnt - 1 : r.a_off
+      first_qpos = get_qpos.call(first_idx)
+      st = -1; en = -1
+      lo = 0; hi = n_mini_pos - 1
+      while lo <= hi
+        mid = ((lo.to_u64 + hi) >> 1).to_i32
+        y = u64_to_i32(mini_pos[mid])
+        if y < first_qpos
+          lo = mid + 1
+        elsif y > first_qpos
+          hi = mid - 1
+        else
+          st = mid
+          break
+        end
+      end
+      if st < 0
+        # Could not find matching minimizer — leave div = -1
+        next
+      end
+      en = st
+
+      # Walk through remaining anchors and match them to mini_pos.
+      # For reverse strand, iterate anchors backwards (decreasing index).
+      l_ref = mi.seq[r.rid].len
+      n_match = 1
+      k = 1
+      j = st + 1
+      while j < n_mini_pos && k < r.cnt
+        anchor_idx = r.rev? ? r.a_off + r.cnt - 1 - k : r.a_off + k
+        x = get_qpos.call(anchor_idx)
+        if x == u64_to_i32(mini_pos[j])
+          k += 1
+          en = j
+          n_match += 1
+        end
+        j += 1
+      end
+
+      n_tot = en - st + 1
+      # Add boundary checks (same as C)
+      n_tot += 1 if r.qs > avg_k.to_i32 && r.rs > avg_k.to_i32
+      n_tot += 1 if qlen - r.qs > avg_k.to_i32 && l_ref - r.re > avg_k.to_i32
+
+      r.div = n_match >= n_tot ? 0.0_f32 : (1.0_f32 - (n_match.to_f / n_tot) ** (1.0 / avg_k)).to_f32
     end
   end
 end

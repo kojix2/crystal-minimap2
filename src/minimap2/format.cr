@@ -192,43 +192,13 @@ module Minimap2
     io.print "\t"; io.print r.blen
     io.print "\t"; io.print mapq
 
-    # Optional fields
-    # tp tag
-    if r.inv?
-      io.print "\ttp:A:I"
-    elsif r.parent >= 0 && r.parent != r.id
-      io.print "\ttp:A:S"
-    else
-      io.print "\tp:A:P"
-    end
-
-    # cm tag
-    io.print "\tcm:i:"; io.print r.cnt
-    # s1 tag
-    io.print "\ts1:i:"; io.print r.score
-    # s2 tag
-    if ep
-      io.print "\ts2:i:"; io.print ep.dp_max2
-    end
-
-    # NM tag
+    # Optional fields — order matches C minimap2 write_tags()
+    # NM, ms, AS, nn tags (when CIGAR/alignment exists)
     if ep
       nm = r.blen - r.mlen + ep.n_ambi.to_i32
       io.print "\tNM:i:"; io.print nm
-    end
-
-    # ms tag (dp_max0)
-    if ep
       io.print "\tms:i:"; io.print ep.dp_max0
-    end
-
-    # AS tag (dp_score)
-    if ep
       io.print "\tAS:i:"; io.print ep.dp_score
-    end
-
-    # nn tag (ambiguous bases)
-    if ep && ep.n_ambi > 0
       io.print "\tnn:i:"; io.print ep.n_ambi
     end
 
@@ -242,9 +212,56 @@ module Minimap2
       end
     end
 
-    # dv tag (divergence)
-    if r.div >= 0.0_f32
-      io.printf("\tdv:f:%.4f", r.div)
+    # tp tag
+    if r.inv?
+      io.print "\ttp:A:I"
+    elsif r.parent >= 0 && r.parent != r.id
+      io.print "\ttp:A:S"
+    else
+      io.print "\ttp:A:P"
+    end
+
+    # cm tag
+    io.print "\tcm:i:"; io.print r.cnt
+    # s1 tag
+    io.print "\ts1:i:"; io.print r.score
+    # s2 tag (primary alignments only)
+    if r.parent == r.id
+      io.print "\ts2:i:"; io.print r.subsc
+    end
+
+    # de/dv tag (divergence)
+    if ep
+      # de:f: — event-level divergence from CIGAR
+      n_gap = 0
+      n_gapo = 0
+      ep.cigar.each do |entry|
+        op = (entry & 0xf).to_i32
+        len = (entry >> 4).to_i32
+        if op == CIGAR_INS || op == CIGAR_DEL
+          n_gap += len
+          n_gapo += 1
+        end
+      end
+      denom = r.mlen + ep.n_ambi.to_i32 - n_gap + n_gapo
+      if denom > 0
+        div = 1.0 - r.mlen.to_f / denom
+        io.printf("\tde:f:%.4f", div)
+      else
+        io.print "\tde:f:0"
+      end
+    elsif r.div >= 0.0_f32 && r.div <= 1.0_f32
+      # dv:f: — approximate divergence from minimizer matching
+      if r.div == 0.0_f32
+        io.print "\tdv:f:0"
+      else
+        io.printf("\tdv:f:%.4f", r.div)
+      end
+    end
+
+    # zd tag (split alignment)
+    if r.split > 0
+      io.print "\tzd:i:"; io.print r.split
     end
 
     # cg tag (CIGAR)
@@ -269,6 +286,11 @@ module Minimap2
       sb = String::Builder.new
       write_md(sb, tseq, qseq, ep)
       io.print sb.to_s
+    end
+
+    # rl tag (repetitive length)
+    if rep_len >= 0
+      io.print "\trl:i:"; io.print rep_len
     end
 
     io.print "\n"
