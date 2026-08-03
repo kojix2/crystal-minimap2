@@ -101,6 +101,18 @@ module Minimap2
       opt.on("-s INT", "Minimal peak DP alignment score [#{mo.min_dp_max}]") do |v|
         mo.min_dp_max = v.to_i
       end
+      opt.on("-u CHAR", "GT-AG direction: f=forward, b=backward, n=no, r=reverse [n]") do |v|
+        case v
+        when "f"
+          mo.flag |= F_SPLICE_FOR
+        when "b"
+          mo.flag |= F_SPLICE_REV
+        when "n"
+          mo.flag &= ~(F_SPLICE_FOR | F_SPLICE_REV)
+        when "r"
+          mo.flag |= F_SPLICE_REV | F_SPLICE_FOR
+        end
+      end
 
       # ── Input / Output ───────────────────────────────────────────────────────
       opt.on("-a", "Output in SAM format (PAF by default)") do
@@ -117,15 +129,65 @@ module Minimap2
       opt.on("--cs", "Output cs tag (short form)") do
         mo.flag |= F_OUT_CS
       end
+      opt.on("--cs-long", "Output cs tag (long form)") do
+        mo.flag |= F_OUT_CS | F_OUT_CS_LONG
+      end
+      opt.on("--MD", "Output MD tag") do
+        mo.flag |= F_OUT_MD | F_CIGAR
+      end
       opt.on("--eqx", "Write =/X CIGAR operators") do
         with_eqx = true
         mo.flag |= F_EQX
+      end
+      opt.on("-Y", "Use soft clipping for supplementary alignments") do
+        mo.flag |= F_SOFTCLIP
+      end
+      opt.on("-L", "Write long CIGARs using the CG tag") do
+        mo.flag |= F_LONG_CIGAR
+      end
+      opt.on("-R STR", "Read group header line") do |v|
+        # Stored for later use in SAM header
+      end
+      opt.on("-y", "Copy FASTA/Q comments to output") do
+        mo.flag |= F_COPY_COMMENT
+      end
+      opt.on("--end-bonus INT", "Score bonus when alignment reaches end of read") do |v|
+        mo.end_bonus = v.to_i
+      end
+      opt.on("-C INT", "Cost for a non-canonical splice site [#{mo.noncan}]") do |v|
+        mo.noncan = v.to_i
+      end
+      opt.on("-G NUM", "Max intron length [#{mo.max_gap_ref}]") do |v|
+        mo.max_gap_ref = parse_num(v).to_i32
+      end
+      opt.on("-F NUM", "Max fragment length [#{mo.max_frag_len}]") do |v|
+        mo.max_frag_len = parse_num(v).to_i32
+      end
+      opt.on("--no-long-join", "Disable long join") do
+        mo.flag |= F_NO_LJOIN
+      end
+      opt.on("--for-only", "Only map to forward strand of reference") do
+        mo.flag |= F_FOR_ONLY
+      end
+      opt.on("--rev-only", "Only map to reverse strand of reference") do
+        mo.flag |= F_REV_ONLY
+      end
+      opt.on("--no-end-flt", "Disable end filtering") do
+        mo.flag |= F_NO_END_FLT
+      end
+      opt.on("--secondary=yes|no", "Whether to output secondary alignments") do |v|
+        if v == "no"
+          mo.flag |= F_NO_PRINT_2ND
+        end
       end
       opt.on("-t INT", "Number of threads [#{n_threads}]") do |v|
         n_threads = v.to_i
       end
       opt.on("-K NUM", "Mini-batch size for mapping [500M]") do |v|
         mo.mini_batch_size = parse_num(v).to_i64
+      end
+      opt.on("--split-prefix STR", "Prefix for split index") do |v|
+        mo.split_prefix = v
       end
 
       # ── Meta ─────────────────────────────────────────────────────────────────
@@ -234,58 +296,160 @@ module Minimap2
       end
 
       loop do
+        is_frag = (mo.flag & F_FRAG_MODE) != 0
         seqs = bf.read_seqs(mo.mini_batch_size,
           with_qual: out_sam,
-          with_comment: false,
-          frag_mode: false)
+          with_comment: (mo.flag & F_COPY_COMMENT) != 0,
+          frag_mode: is_frag)
         break if seqs.empty?
 
-        # Pre-allocate result slots (one per read × per index).
-        # We map every (seq, index) pair independently then write in order.
-        n_pairs = seqs.size * indices.size
-        # results[i] holds the alignments for pair i; nil means not yet done.
-        results = Array(Array(MmReg1)?).new(n_pairs, nil)
-        pending = Atomic(Int32).new(n_pairs)
-        done_ch = Channel(Nil).new(1)
+        if is_frag && query_fns.size == 1
+          # Fragment/paired-end mode: group consecutive reads by name
+          # and map as multi-segment fragments
+          frag_groups = group_fragments(seqs)
 
-        seqs.each_with_index do |bseq, seq_i|
-          indices.each_with_index do |midx, mi_i|
-            pair_idx = seq_i * indices.size + mi_i
-            map_ctx.spawn do
-              begin
-                results[pair_idx] = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name)
-              rescue ex
-                STDERR.puts "[WARNING] mapping failed for '#{bseq.name}': #{ex.message}"
-                results[pair_idx] = [] of MmReg1
-              end
-              done_ch.send(nil) if pending.sub(1, :sequentially_consistent) == 1
-            end
-          end
-        end
-
-        done_ch.receive
-
-        # Write results in original input order (deterministic output).
-        seqs.each_with_index do |bseq, seq_i|
-          indices.each_with_index do |midx, mi_i|
-            regs = results[seq_i * indices.size + mi_i] || [] of MmReg1
-            regs.each do |reg|
-              if out_sam
-                write_sam(out_io, midx, bseq, reg, regs.size, regs, mo.flag)
+          frag_groups.each_with_index do |group, grp_i|
+            indices.each_with_index do |midx, mi_i|
+              n_segs = group.size
+              if n_segs == 1
+                # Single-end: map normally
+                bseq = group[0]
+                regs = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name)
+                regs.each do |reg|
+                  write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo)
+                end
+                write_sam_unmapped(out_io, bseq) if out_sam && regs.empty?
               else
-                write_paf(out_io, midx, bseq, reg, mo.flag)
+                # Paired-end: apply pe_ori revcomp and map as fragment
+                seqs_str = Array(String).new(n_segs)
+                qlens = Array(Int32).new(n_segs)
+                n_segs.times do |seg_i|
+                  s = group[seg_i].seq
+                  # pe_ori: bit 1 = revcomp read1, bit 0 = revcomp read2
+                  if seg_i == 0 && (mo.pe_ori & 2) != 0
+                    s = s.reverse.tr("ACGTacgtNn", "TGCAtgcaNn")
+                  elsif seg_i == 1 && (mo.pe_ori & 1) != 0
+                    s = s.reverse.tr("ACGTacgtNn", "TGCAtgcaNn")
+                  end
+                  seqs_str << s
+                  qlens << group[seg_i].l_seq
+                end
+
+                all_regs = Minimap2.map_frag(midx, seqs_str, qlens, mo, group[0].name)
+
+                n_segs.times do |seg_i|
+                  bseq = group[seg_i]
+                  regs = all_regs[seg_i]
+                  regs.each do |reg|
+                    write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo)
+                  end
+                  write_sam_unmapped(out_io, bseq) if out_sam && regs.empty?
+                end
               end
             end
-            write_sam_unmapped(out_io, bseq) if out_sam && regs.empty?
           end
-        end
-      end
+        else
+          # Independent mapping of each sequence
+          n_pairs = seqs.size * indices.size
+          results = Array(Array(MmReg1)?).new(n_pairs, nil)
+          pending = Atomic(Int32).new(n_pairs)
+          done_ch = Channel(Nil).new(1)
+
+          seqs.each_with_index do |bseq, seq_i|
+            indices.each_with_index do |midx, mi_i|
+              pair_idx = seq_i * indices.size + mi_i
+              map_ctx.spawn do
+                begin
+                  results[pair_idx] = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name)
+                rescue ex
+                  STDERR.puts "[WARNING] mapping failed for '#{bseq.name}': #{ex.message}"
+                  results[pair_idx] = [] of MmReg1
+                end
+                done_ch.send(nil) if pending.sub(1, :sequentially_consistent) == 1
+              end
+            end
+          end
+
+          done_ch.receive
+
+          seqs.each_with_index do |bseq, seq_i|
+            indices.each_with_index do |midx, mi_i|
+              regs = results[seq_i * indices.size + mi_i] || [] of MmReg1
+              regs.each do |reg|
+                write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo)
+              end
+              write_sam_unmapped(out_io, bseq) if out_sam && regs.empty?
+            end
+          end
+        end # else (not frag mode)
+      end   # loop do
 
       bf.close
     end
 
     out_io.close unless out_file.nil?
     0
+  end
+
+  # ---------------------------------------------------------------------------
+  # Write a single alignment result to the output.
+  # ---------------------------------------------------------------------------
+  private def self.write_output(out_io : IO, out_sam : Bool,
+                                midx : MmIdx, bseq : BSeq1,
+                                reg : MmReg1, n_regs : Int32,
+                                all_regs : Array(MmReg1),
+                                mo : MmMapOpt) : Nil
+    need_seq = (mo.flag & (F_OUT_CS | F_OUT_CS_LONG | F_OUT_MD)) != 0
+    if out_sam
+      if need_seq && reg.p
+        tseq_arr = get_ref_seq(midx, reg.rid, reg.rs, reg.re, false)
+        qseq_arr = encode_seq(bseq.seq[reg.qs...reg.qe])
+        qseq_arr = rev_comp(qseq_arr) if reg.rev?
+        write_sam(out_io, midx, bseq, reg, n_regs, all_regs, mo.flag, tseq_arr, qseq_arr)
+      else
+        write_sam(out_io, midx, bseq, reg, n_regs, all_regs, mo.flag)
+      end
+    else
+      if need_seq && reg.p
+        tseq_arr = get_ref_seq(midx, reg.rid, reg.rs, reg.re, false)
+        qseq_arr = encode_seq(bseq.seq[reg.qs...reg.qe])
+        qseq_arr = rev_comp(qseq_arr) if reg.rev?
+        write_paf(out_io, midx, bseq, reg, mo.flag, 0, tseq_arr, qseq_arr)
+      else
+        write_paf(out_io, midx, bseq, reg, mo.flag)
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Group consecutive reads by name (paired-end / fragment mode).
+  # Reads with the same base name (ignoring /1 /2 suffix) are grouped.
+  # ---------------------------------------------------------------------------
+  private def self.group_fragments(seqs : Array(BSeq1)) : Array(Array(BSeq1))
+    groups = [] of Array(BSeq1)
+    return groups if seqs.empty?
+
+    current = [seqs[0]]
+    (1...seqs.size).each do |i|
+      if same_qname_base?(seqs[i].name, current[0].name)
+        current << seqs[i]
+      else
+        groups << current
+        current = [seqs[i]]
+      end
+    end
+    groups << current
+    groups
+  end
+
+  # Check if two names match ignoring /1 /2 suffix.
+  private def self.same_qname_base?(a : String, b : String) : Bool
+    return false if a.empty? || b.empty?
+    la = a.size; lb = b.size
+    ea = (la >= 2 && a[la - 2] == '/' && (a[la - 1] == '1' || a[la - 1] == '2')) ? la - 2 : la
+    eb = (lb >= 2 && b[lb - 2] == '/' && (b[lb - 1] == '1' || b[lb - 1] == '2')) ? lb - 2 : lb
+    return false if ea != eb
+    a[0...ea] == b[0...eb]
   end
 
   # ---------------------------------------------------------------------------

@@ -345,33 +345,82 @@ module Minimap2
   end
 
   # Set MAPQ scores for hits.
-  # Simplified version of mm_set_mapq2 from hit.c.
+  # Full port of mm_set_mapq2 from hit.c.
   def self.set_mapq2(regs : Array(MmReg1), n_regs : Int32,
                      min_chain_sc : Int32, match_sc : Int32,
                      rep_len : Int32, is_sr : Bool, is_splice : Bool) : Nil
+    # Compute sum of primary scores for uniq_ratio
+    sum_sc = 0
+    n_regs.times do |i|
+      r = regs[i]
+      next if r.cnt == 0 || r.parent != r.id
+      sum_sc += r.score
+    end
+    uniq_ratio = sum_sc > 0 ? sum_sc.to_f / (sum_sc + rep_len) : 1.0
+
     n_regs.times do |i|
       r = regs[i]
       next if r.cnt == 0
-      if ep = r.p
-        # Estimate mapq from dp_max and dp_max2
-        if r.parent == i # primary
-          if ep.dp_max2 < 0
-            r.mapq = 60_u32
+
+      if r.inv?
+        r.mapq = 0_u32
+        next
+      end
+
+      if r.parent == i # primary
+        # Penalty calculations
+        pen_s1 = r.score > 100 ? 1.0 : 0.01 * r.score
+        pen_s1 *= uniq_ratio
+        pen_cm = r.cnt > 10 ? 1.0 : 0.1 * r.cnt
+        pen_cm = pen_s1 if pen_s1 < pen_cm
+
+        subsc = r.subsc > min_chain_sc ? r.subsc : min_chain_sc
+
+        if ep = r.p
+          if ep.dp_max2 > 0 && ep.dp_max > 0
+            identity = r.blen > 0 ? r.mlen.to_f / r.blen : 1.0
+
+            x = if is_sr && is_splice && r.is_spliced?
+                  ep.dp_max2.to_f / ep.dp_max
+                else
+                  (ep.dp_max2.to_f * subsc) / (ep.dp_max.to_f * r.score0)
+                end
+
+            # Main formula
+            mapq_f = identity * pen_cm * 40.0 * (1.0 - x * x) * Math.log(ep.dp_max.to_f / match_sc)
+
+            unless is_sr
+              # BWA-MEM style alternative
+              mapq_alt = 6.02 * identity * identity * (ep.dp_max - ep.dp_max2).to_f / match_sc
+              mapq_f = mapq_alt if mapq_alt < mapq_f
+            end
+
+            # Splice bonus
+            if is_splice && is_sr && r.is_spliced?
+              mapq_f += 10.0
+            end
+
+            mapq_f -= (4.343 * Math.log(r.n_sub + 1)) # 4.343 = 10/ln(10)
+            r.mapq = mapq_f.clamp(0.0, 60.0).to_u32
+            r.mapq = 1_u32 if ep.dp_max > ep.dp_max2 && r.mapq == 0
+          elsif ep.dp_max > 0
+            identity = r.blen > 0 ? r.mlen.to_f / r.blen : 1.0
+            x = subsc.to_f / r.score0
+            mapq_f = identity * pen_cm * 40.0 * (1.0 - x) * Math.log(ep.dp_max.to_f / match_sc)
+            mapq_f -= (4.343 * Math.log(r.n_sub + 1))
+            r.mapq = mapq_f.clamp(0.0, 60.0).to_u32
           else
-            mapq = (40.0 * (1.0 - ep.dp_max2.to_f / ep.dp_max) * Math.log(r.cnt.to_f + 1) + 0.499).to_u32
-            mapq = [mapq, 60_u32].min
-            r.mapq = mapq
+            r.mapq = 0_u32
           end
         else
-          r.mapq = 0_u32
+          # No alignment — use chaining score
+          x = subsc.to_f / r.score0
+          mapq_f = pen_cm * 40.0 * (1.0 - x) * Math.log(r.score.to_f / match_sc)
+          mapq_f -= (4.343 * Math.log(r.n_sub + 1))
+          r.mapq = mapq_f.clamp(0.0, 60.0).to_u32
         end
       else
-        # No alignment, use chaining score
-        if r.parent == i
-          r.mapq = 60_u32
-        else
-          r.mapq = 0_u32
-        end
+        r.mapq = 0_u32
       end
     end
   end

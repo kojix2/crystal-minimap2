@@ -1,7 +1,7 @@
 module Minimap2
   # ---------------------------------------------------------------------------
   # Output formatting — port of format.c
-  # Supports PAF (primary), SAM (partial), cs/cigar strings.
+  # Supports PAF (primary), SAM, cs/cigar strings, MD tag.
   # ---------------------------------------------------------------------------
 
   BASES_STR   = "ACGTN"
@@ -35,7 +35,9 @@ module Minimap2
     {q, t}
   end
 
-  # Write cs string (short form with :N for matches).
+  # Write cs string (short or long form).
+  # Short: :N *tc +acgt -acgt ~gt..ac
+  # Long:  =ACGT *tc +acgt -acgt ~gt..ac
   private def self.write_cs(sb : String::Builder, tseq : Array(UInt8), qseq : Array(UInt8),
                             ep : MmExtra, long_form : Bool) : Nil
     q_off = 0; t_off = 0
@@ -44,29 +46,41 @@ module Minimap2
       len = (entry >> 4).to_i32
       case op
       when CIGAR_MATCH, CIGAR_EQ_MATCH, CIGAR_X_MISMATCH
-        l_tmp = 0
-        len.times do |j|
-          if qseq[q_off + j] != tseq[t_off + j]
-            if l_tmp > 0
+        # Track matching and mismatching runs
+        match_start = 0
+        j = 0
+        while j < len
+          if qseq[q_off + j] == tseq[t_off + j]
+            # Start or extend a match run
+            match_start = j if j == 0 || qseq[q_off + j - 1] != tseq[t_off + j - 1]
+          else
+            # End any preceding match run
+            match_len = j - match_start
+            if qseq[q_off + j - 1] == tseq[t_off + j - 1]
+              # Previous was match
               if long_form
-                sb << "="; sb << BASES_STR[0, 1] # placeholder
+                sb << "="
+                match_len.times { |k| sb << BASES_STR[qseq[q_off + match_start + k]]? }
               else
-                sb << ":"; sb << l_tmp
+                sb << ":"; sb << match_len
               end
-              l_tmp = 0
             end
+            # Write substitution
             sb << "*"
             sb << BASES_LOWER[tseq[t_off + j]]?
             sb << BASES_LOWER[qseq[q_off + j]]?
-          else
-            l_tmp += 1
+            match_start = j + 1
           end
+          j += 1
         end
-        if l_tmp > 0
+        # Handle trailing match
+        final_match_len = len - match_start
+        if final_match_len > 0
           if long_form
-            sb << "="; l_tmp.times { |j| sb << BASES_STR[qseq[q_off + j + (len - l_tmp)]]? }
+            sb << "="
+            final_match_len.times { |k| sb << BASES_STR[qseq[q_off + match_start + k]]? }
           else
-            sb << ":"; sb << l_tmp
+            sb << ":"; sb << final_match_len
           end
         end
         q_off += len; t_off += len
@@ -79,18 +93,84 @@ module Minimap2
         len.times { |j| sb << BASES_LOWER[tseq[t_off + j]]? }
         t_off += len
       when CIGAR_N_SKIP
-        d = tseq[t_off]? || 4_u8; a = tseq[t_off + len - 1]? || 4_u8
-        sb << "~"; sb << BASES_LOWER[d]?; sb << BASES_LOWER[tseq[t_off + 1]? || 4_u8]?
-        sb << len; sb << BASES_LOWER[tseq[t_off + len - 2]? || 4_u8]?; sb << BASES_LOWER[a]?
+        d = tseq[t_off]? || 4_u8
+        a = tseq[t_off + len - 1]? || 4_u8
+        sb << "~"
+        sb << BASES_LOWER[d]?
+        sb << BASES_LOWER[tseq[t_off + 1]? || 4_u8]?
+        sb << len
+        sb << BASES_LOWER[tseq[t_off + len - 2]? || 4_u8]?
+        sb << BASES_LOWER[a]?
         t_off += len
       end
     end
   end
 
+  # Write MD tag from CIGAR and sequences.
+  # Mirrors write_md_core() from format.c.
+  private def self.write_md(sb : String::Builder, tseq : Array(UInt8), qseq : Array(UInt8),
+                            ep : MmExtra) : Nil
+    q_off = 0; t_off = 0; l_md = 0
+    ep.cigar.each do |entry|
+      op = (entry & 0xf).to_i32
+      len = (entry >> 4).to_i32
+      case op
+      when CIGAR_MATCH, CIGAR_EQ_MATCH, CIGAR_X_MISMATCH
+        len.times do |j|
+          if qseq[q_off + j] == tseq[t_off + j]
+            l_md += 1
+          else
+            sb << l_md
+            sb << BASES_STR[tseq[t_off + j]]?
+            l_md = 0
+          end
+        end
+        q_off += len; t_off += len
+      when CIGAR_INS
+        q_off += len # insertions don't affect MD
+      when CIGAR_DEL
+        sb << l_md; l_md = 0
+        sb << "^"
+        len.times { |j| sb << BASES_STR[tseq[t_off + j]]? }
+        t_off += len
+      when CIGAR_N_SKIP
+        t_off += len # skips don't affect MD
+      end
+    end
+    sb << l_md if l_md > 0
+  end
+
+  # Compute edit distance (NM tag) from CIGAR.
+  private def self.compute_nm(ep : MmExtra) : Int32
+    n_mis = 0
+    q_off = 0; t_off = 0
+    ep.cigar.each do |entry|
+      op = (entry & 0xf).to_i32
+      len = (entry >> 4).to_i32
+      case op
+      when CIGAR_MATCH, CIGAR_EQ_MATCH, CIGAR_X_MISMATCH
+        len.times { |j| n_mis += 1 } # will be corrected by counting matches
+      when CIGAR_INS, CIGAR_DEL
+        n_mis += len
+      end
+    end
+    # NM = blen - mlen + n_ambi
+    n_mis = 0
+    ep.cigar.each do |entry|
+      op = (entry & 0xf).to_i32
+      len = (entry >> 4).to_i32
+      if op == CIGAR_INS || op == CIGAR_DEL
+        n_mis += len
+      end
+    end
+    n_mis
+  end
+
   # Write one PAF record.
   # Mirrors mm_write_paf4().
   def self.write_paf(io : IO, mi : MmIdx, t : BSeq1, r : MmReg1,
-                     opt_flag : Int64, rep_len : Int32 = 0) : Nil
+                     opt_flag : Int64, rep_len : Int32 = 0,
+                     tseq : Array(UInt8)? = nil, qseq : Array(UInt8)? = nil) : Nil
     ep = r.p
 
     # Column 1-12: standard PAF fields
@@ -113,29 +193,84 @@ module Minimap2
     io.print "\t"; io.print mapq
 
     # Optional fields
-    if r.parent >= 0 && r.parent != r.id
+    # tp tag
+    if r.inv?
+      io.print "\ttp:A:I"
+    elsif r.parent >= 0 && r.parent != r.id
       io.print "\ttp:A:S"
     else
-      io.print "\ttp:A:P"
+      io.print "\tp:A:P"
     end
+
+    # cm tag
     io.print "\tcm:i:"; io.print r.cnt
+    # s1 tag
     io.print "\ts1:i:"; io.print r.score
+    # s2 tag
     if ep
       io.print "\ts2:i:"; io.print ep.dp_max2
     end
+
+    # NM tag
+    if ep
+      nm = r.blen - r.mlen + ep.n_ambi.to_i32
+      io.print "\tNM:i:"; io.print nm
+    end
+
+    # ms tag (dp_max0)
+    if ep
+      io.print "\tms:i:"; io.print ep.dp_max0
+    end
+
+    # AS tag (dp_score)
+    if ep
+      io.print "\tAS:i:"; io.print ep.dp_score
+    end
+
+    # nn tag (ambiguous bases)
+    if ep && ep.n_ambi > 0
+      io.print "\tnn:i:"; io.print ep.n_ambi
+    end
+
+    # ts tag (transcript strand)
+    if ep && ep.trans_strand > 0
+      io.print "\tts:A:"
+      case ep.trans_strand
+      when 1 then io.print "+"
+      when 2 then io.print "-"
+      else        io.print "?"
+      end
+    end
+
+    # dv tag (divergence)
     if r.div >= 0.0_f32
       io.printf("\tdv:f:%.4f", r.div)
     end
+
+    # cg tag (CIGAR)
     if ep && (opt_flag & F_OUT_MD) == 0 && (opt_flag & F_CIGAR) != 0
-      # Write CIGAR
       io.print "\tcg:Z:"
       sb = String::Builder.new
       write_cigar(sb, ep, (opt_flag & F_EQX) != 0)
       io.print sb.to_s
     end
-    if (opt_flag & F_OUT_MD) != 0 && ep
-      # MD tag skipped for now
+
+    # cs tag
+    if ep && tseq && qseq && ((opt_flag & F_OUT_CS) != 0 || (opt_flag & F_OUT_CS_LONG) != 0)
+      io.print "\tcs:Z:"
+      sb = String::Builder.new
+      write_cs(sb, tseq, qseq, ep, (opt_flag & F_OUT_CS_LONG) != 0)
+      io.print sb.to_s
     end
+
+    # MD tag
+    if ep && tseq && qseq && (opt_flag & F_OUT_MD) != 0
+      io.print "\tMD:Z:"
+      sb = String::Builder.new
+      write_md(sb, tseq, qseq, ep)
+      io.print sb.to_s
+    end
+
     io.print "\n"
   end
 
@@ -152,7 +287,8 @@ module Minimap2
 
   # Write one SAM record.
   def self.write_sam(io : IO, mi : MmIdx, t : BSeq1, r : MmReg1, n_regs : Int32,
-                     all_regs : Array(MmReg1), opt_flag : Int64) : Nil
+                     all_regs : Array(MmReg1), opt_flag : Int64,
+                     tseq : Array(UInt8)? = nil, qseq : Array(UInt8)? = nil) : Nil
     ep = r.p
     ctg_name = r.rid >= 0 && r.rid < mi.seq.size ? mi.seq[r.rid].name : "*"
     mapq = r.mapq.clamp(0_u32, 60_u32)
@@ -202,6 +338,50 @@ module Minimap2
       end
     else
       io.print "*"
+    end
+
+    # Optional tags
+    if ep
+      # NM tag
+      nm = r.blen - r.mlen + ep.n_ambi.to_i32
+      io.print "\tNM:i:"; io.print nm
+
+      # ms tag
+      io.print "\tms:i:"; io.print ep.dp_max0
+
+      # AS tag
+      io.print "\tAS:i:"; io.print ep.dp_score
+
+      # nn tag
+      if ep.n_ambi > 0
+        io.print "\tnn:i:"; io.print ep.n_ambi
+      end
+
+      # ts tag (transcript strand)
+      if ep.trans_strand > 0
+        io.print "\tts:A:"
+        case ep.trans_strand
+        when 1 then io.print "+"
+        when 2 then io.print "-"
+        else        io.print "?"
+        end
+      end
+
+      # cs tag
+      if tseq && qseq && ((opt_flag & F_OUT_CS) != 0 || (opt_flag & F_OUT_CS_LONG) != 0)
+        io.print "\tcs:Z:"
+        sb = String::Builder.new
+        write_cs(sb, tseq, qseq, ep, (opt_flag & F_OUT_CS_LONG) != 0)
+        io.print sb.to_s
+      end
+
+      # MD tag
+      if tseq && qseq && (opt_flag & F_OUT_MD) != 0
+        io.print "\tMD:Z:"
+        sb = String::Builder.new
+        write_md(sb, tseq, qseq, ep)
+        io.print sb.to_s
+      end
     end
 
     io.print "\n"
