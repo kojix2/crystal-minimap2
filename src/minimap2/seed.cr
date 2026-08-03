@@ -87,20 +87,19 @@ module Minimap2
           st = last0 + 1
           en = i
           max_high_occ = ((pe - ps).to_f / dist + 0.499).to_i32
+          chosen = Set(Int32).new
           if max_high_occ > 0
             max_high_occ = MAX_MAX_HIGH_OCC if max_high_occ > MAX_MAX_HIGH_OCC
-            # Pick top max_high_occ by n (using a heap or just sort)
+            # Keep the least frequent minimizers in this high-occurrence run.
             run = (st...en).to_a
-            # Sort run by n descending; take first max_high_occ
-            run.sort_by! { |j| -seeds[j].n }
+            run.sort_by! { |j| {seeds[j].n, j} }
             chosen = run.first(max_high_occ).to_set
-            (st...en).each do |j|
-              # invert: flag those NOT chosen
-              if chosen.includes?(j)
-                seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, false, seeds[j].is_tandem?)
-              else
-                seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, true, seeds[j].is_tandem?)
-              end
+          end
+          (st...en).each do |j|
+            if chosen.includes?(j)
+              seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, false, seeds[j].is_tandem?)
+            else
+              seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, true, seeds[j].is_tandem?)
             end
           end
           # Filter anything exceeding max_max_occ

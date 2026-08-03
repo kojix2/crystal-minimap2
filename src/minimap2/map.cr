@@ -168,10 +168,10 @@ module Minimap2
   def self.map_frag_core(mi : MmIdx, n_segs : Int32, qlens : Array(Int32),
                          seqs : Array(String), n_regs_arr : Array(Int32),
                          regs_arr : Array(Array(MmReg1)),
-                         opt : MmMapOpt, qname : String? = nil) : Nil
+                         opt : MmMapOpt, qname : String? = nil) : Int32
     qlen_sum = qlens.sum
     n_segs.times { |i| n_regs_arr[i] = 0; regs_arr[i] = [] of MmReg1 }
-    return if qlen_sum == 0 || n_segs <= 0
+    return 0 if qlen_sum == 0 || n_segs <= 0
 
     # Compute query hash
     hash = qname && (opt.flag & F_NO_HASH_NAME) == 0 ? x31_hash_string(qname) : 0_u32
@@ -302,25 +302,29 @@ module Minimap2
         regs_arr[seg_i] = seg_regs.first(n_ref_seg)
       end
     end
+    rep_len
   end
 
   # Map a single query string against the index.
   # Mirrors mm_map().
   def self.map(mi : MmIdx, qlen : Int32, seq : String,
-               opt : MmMapOpt, qname : String? = nil) : Array(MmReg1)
+               opt : MmMapOpt, qname : String? = nil, tbuf : MmTbuf? = nil) : Array(MmReg1)
     n_regs = [0]
     regs = [[] of MmReg1]
-    map_frag_core(mi, 1, [qlen], [seq], n_regs, regs, opt, qname)
+    rep_len = map_frag_core(mi, 1, [qlen], [seq], n_regs, regs, opt, qname)
+    tbuf.rep_len = rep_len if tbuf
     regs[0].first(n_regs[0])
   end
 
   # Map multiple query sequences (e.g. for fragment mode).
   def self.map_frag(mi : MmIdx, seqs : Array(String), qlens : Array(Int32),
-                    opt : MmMapOpt, qname : String? = nil) : Array(Array(MmReg1))
+                    opt : MmMapOpt, qname : String? = nil,
+                    tbuf : MmTbuf? = nil) : Array(Array(MmReg1))
     n_segs = seqs.size
     n_regs = Array(Int32).new(n_segs, 0)
     regs = Array(Array(MmReg1)).new(n_segs) { [] of MmReg1 }
-    map_frag_core(mi, n_segs, qlens, seqs, n_regs, regs, opt, qname)
+    rep_len = map_frag_core(mi, n_segs, qlens, seqs, n_regs, regs, opt, qname)
+    tbuf.rep_len = rep_len if tbuf
     Array.new(n_segs) { |i| regs[i].first(n_regs[i]) }
   end
 

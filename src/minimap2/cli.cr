@@ -12,6 +12,13 @@ module Minimap2
     mapopt_init(mo)
 
     preset : String? = nil
+    argv.each_with_index do |arg, i|
+      if arg == "-x"
+        preset = argv[i + 1]?
+      elsif arg.starts_with?("-x") && arg.size > 2
+        preset = arg[2..]
+      end
+    end
     out_file : String? = nil
     index_file : String? = nil # -d
     out_sam = false            # -a
@@ -50,7 +57,13 @@ module Minimap2
 
       # ── Mapping ──────────────────────────────────────────────────────────────
       opt.on("-f FLOAT", "Filter top FLOAT fraction of repetitive minimizers [#{mo.mid_occ_frac}]") do |v|
-        mo.mid_occ_frac = v.to_f32
+        value = v.to_f64
+        if value < 1.0
+          mo.mid_occ_frac = value.to_f32
+          mo.mid_occ = 0
+        else
+          mo.mid_occ = (value + 0.499).to_i32
+        end
       end
       opt.on("-g NUM", "Stop chain elongation if gap exceeds NUM bp [#{mo.max_gap}]") do |v|
         mo.max_gap = parse_num(v).to_i32
@@ -189,6 +202,9 @@ module Minimap2
       opt.on("--split-prefix STR", "Prefix for split index") do |v|
         mo.split_prefix = v
       end
+      opt.on("--dbg-seed-occ", "Print seed occurrence diagnostics") do
+        @@dbg_flag |= DBG_SEED_FREQ
+      end
 
       # ── Meta ─────────────────────────────────────────────────────────────────
       opt.on("--version", "Show version and exit") do
@@ -314,9 +330,10 @@ module Minimap2
               if n_segs == 1
                 # Single-end: map normally
                 bseq = group[0]
-                regs = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name)
+                tbuf = MmTbuf.new
+                regs = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name, tbuf)
                 regs.each do |reg|
-                  write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo)
+                  write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo, tbuf.rep_len)
                 end
                 write_sam_unmapped(out_io, bseq) if out_sam && regs.empty?
               else
@@ -335,13 +352,14 @@ module Minimap2
                   qlens << group[seg_i].l_seq
                 end
 
-                all_regs = Minimap2.map_frag(midx, seqs_str, qlens, mo, group[0].name)
+                tbuf = MmTbuf.new
+                all_regs = Minimap2.map_frag(midx, seqs_str, qlens, mo, group[0].name, tbuf)
 
                 n_segs.times do |seg_i|
                   bseq = group[seg_i]
                   regs = all_regs[seg_i]
                   regs.each do |reg|
-                    write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo)
+                    write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo, tbuf.rep_len)
                   end
                   write_sam_unmapped(out_io, bseq) if out_sam && regs.empty?
                 end
@@ -352,6 +370,7 @@ module Minimap2
           # Independent mapping of each sequence
           n_pairs = seqs.size * indices.size
           results = Array(Array(MmReg1)?).new(n_pairs, nil)
+          rep_lens = Array(Int32).new(n_pairs, 0)
           pending = Atomic(Int32).new(n_pairs)
           done_ch = Channel(Nil).new(1)
 
@@ -360,7 +379,9 @@ module Minimap2
               pair_idx = seq_i * indices.size + mi_i
               map_ctx.spawn do
                 begin
-                  results[pair_idx] = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name)
+                  tbuf = MmTbuf.new
+                  results[pair_idx] = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name, tbuf)
+                  rep_lens[pair_idx] = tbuf.rep_len
                 rescue ex
                   STDERR.puts "[WARNING] mapping failed for '#{bseq.name}': #{ex.message}"
                   results[pair_idx] = [] of MmReg1
@@ -374,9 +395,10 @@ module Minimap2
 
           seqs.each_with_index do |bseq, seq_i|
             indices.each_with_index do |midx, mi_i|
-              regs = results[seq_i * indices.size + mi_i] || [] of MmReg1
+              pair_idx = seq_i * indices.size + mi_i
+              regs = results[pair_idx] || [] of MmReg1
               regs.each do |reg|
-                write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo)
+                write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo, rep_lens[pair_idx])
               end
               write_sam_unmapped(out_io, bseq) if out_sam && regs.empty?
             end
@@ -398,7 +420,7 @@ module Minimap2
                                 midx : MmIdx, bseq : BSeq1,
                                 reg : MmReg1, n_regs : Int32,
                                 all_regs : Array(MmReg1),
-                                mo : MmMapOpt) : Nil
+                                mo : MmMapOpt, rep_len : Int32) : Nil
     need_seq = (mo.flag & (F_OUT_CS | F_OUT_CS_LONG | F_OUT_MD)) != 0
     if out_sam
       if need_seq && reg.p
@@ -414,9 +436,9 @@ module Minimap2
         tseq_arr = get_ref_seq(midx, reg.rid, reg.rs, reg.re, false)
         qseq_arr = encode_seq(bseq.seq[reg.qs...reg.qe])
         qseq_arr = rev_comp(qseq_arr) if reg.rev?
-        write_paf(out_io, midx, bseq, reg, mo.flag, 0, tseq_arr, qseq_arr)
+        write_paf(out_io, midx, bseq, reg, mo.flag, rep_len, tseq_arr, qseq_arr)
       else
-        write_paf(out_io, midx, bseq, reg, mo.flag)
+        write_paf(out_io, midx, bseq, reg, mo.flag, rep_len)
       end
     end
   end

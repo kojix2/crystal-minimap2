@@ -57,6 +57,35 @@ describe Minimap2 do
     end
   end
 
+  describe "seed_select" do
+    it "filters an entire short high-occurrence run" do
+      hits = [] of UInt64
+      seeds = [
+        Minimap2::MmSeed.new(39, 20_u32, 15_u32, hits),
+        Minimap2::MmSeed.new(29, 40_u32, 15_u32, hits),
+        Minimap2::MmSeed.new(1, 200_u32, 15_u32, hits),
+      ]
+
+      Minimap2.seed_select(seeds, 200, 12, 4_095, 500)
+
+      seeds.map(&.flt?).should eq([true, true, false])
+    end
+
+    it "retains the least frequent seeds when the quota is nonzero" do
+      hits = [] of UInt64
+      seeds = [
+        Minimap2::MmSeed.new(20, 20_u32, 15_u32, hits),
+        Minimap2::MmSeed.new(30, 40_u32, 15_u32, hits),
+        Minimap2::MmSeed.new(25, 60_u32, 15_u32, hits),
+        Minimap2::MmSeed.new(1, 2_000_u32, 15_u32, hits),
+      ]
+
+      Minimap2.seed_select(seeds, 1_100, 12, 4_095, 500)
+
+      seeds.map(&.flt?).should eq([false, true, false, false])
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Sketch
   # ---------------------------------------------------------------------------

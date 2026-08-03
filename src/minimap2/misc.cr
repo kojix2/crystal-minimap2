@@ -106,10 +106,7 @@ module Minimap2
 
   # ---------------------------------------------------------------------------
   # Radix sort for Array(Mm128) by key = x (8-bit radix, 8 passes).
-  # Uses a pre-allocated class-level buffer to avoid per-call GC allocation.
   # ---------------------------------------------------------------------------
-  @@sort_buf = [] of Mm128
-
   def self.radix_sort_128x(a : Array(Mm128)) : Nil
     radix_sort_128x_impl(a, 0, a.size)
   end
@@ -122,11 +119,7 @@ module Minimap2
     n = to - from
     return if n <= 1
 
-    # Ensure class-level buffer is large enough (never shrinks).
-    if @@sort_buf.size < n
-      @@sort_buf = Array(Mm128).new(n, Mm128.max)
-    end
-    buf = @@sort_buf
+    buf = Array(Mm128).new(n, Mm128.max)
 
     count = StaticArray(Int32, 256).new(0)
 
@@ -169,8 +162,6 @@ module Minimap2
   # ---------------------------------------------------------------------------
   # Radix sort for Array(UInt64) — 8-bit radix, 8 passes.
   # ---------------------------------------------------------------------------
-  @@sort_buf64 = [] of UInt64
-
   def self.radix_sort_64(a : Array(UInt64)) : Nil
     radix_sort_64_impl(a, 0, a.size)
   end
@@ -183,10 +174,7 @@ module Minimap2
     n = to - from
     return if n <= 1
 
-    if @@sort_buf64.size < n
-      @@sort_buf64 = Array(UInt64).new(n, 0_u64)
-    end
-    buf = @@sort_buf64
+    buf = Array(UInt64).new(n, 0_u64)
 
     count = StaticArray(Int32, 256).new(0)
 
