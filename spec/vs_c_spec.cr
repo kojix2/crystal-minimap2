@@ -22,7 +22,8 @@ require "./spec_helper"
 #   - Secondary/supplementary hit details for complex inversions
 # ---------------------------------------------------------------------------
 
-MINIMAP2_BIN = ENV["MINIMAP2_BIN"]? || "minimap2"
+MINIMAP2_BIN = ENV["MINIMAP2_BIN"]? ||
+               (File.exists?("minimap2/minimap2") ? "minimap2/minimap2" : "minimap2")
 TEST_DIR     = File.join(__DIR__, "../minimap2/test")
 
 # Parse the first 12 PAF columns into a named tuple.
