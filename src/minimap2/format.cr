@@ -186,8 +186,13 @@ module Minimap2
     io.print "\t"; io.print r.rev? ? '-' : '+'
     io.print "\t"; io.print ctg_name
     io.print "\t"; io.print ctg_len
-    io.print "\t"; io.print r.rs
-    io.print "\t"; io.print r.re
+    if (opt_flag & F_QSTRAND) != 0 && r.rev?
+      io.print "\t"; io.print ctg_len - r.re
+      io.print "\t"; io.print ctg_len - r.rs
+    else
+      io.print "\t"; io.print r.rs
+      io.print "\t"; io.print r.re
+    end
     io.print "\t"; io.print r.mlen
     io.print "\t"; io.print r.blen
     io.print "\t"; io.print mapq
@@ -212,9 +217,10 @@ module Minimap2
       end
     end
 
-    # tp tag
+    # tp tag — primary/secondary inversion distinction (mirrors write_tags())
     if r.inv?
-      io.print "\ttp:A:I"
+      io.print "\ttp:A:"
+      io.print (r.parent >= 0 && r.parent != r.id) ? "i" : "I"
     elsif r.parent >= 0 && r.parent != r.id
       io.print "\ttp:A:S"
     else
@@ -269,8 +275,8 @@ module Minimap2
       io.print "\trl:i:"; io.print rep_len
     end
 
-    # cg tag (CIGAR)
-    if ep && (opt_flag & F_OUT_MD) == 0 && (opt_flag & F_CIGAR) != 0
+    # cg tag (CIGAR) — gated only on F_OUT_CG, like C minimap2
+    if ep && (opt_flag & F_OUT_CG) != 0
       io.print "\tcg:Z:"
       sb = String::Builder.new
       write_cigar(sb, ep, (opt_flag & F_EQX) != 0)
@@ -293,32 +299,60 @@ module Minimap2
       io.print sb.to_s
     end
 
+    if (opt_flag & F_COPY_COMMENT) != 0 && (comment = t.comment)
+      io.print "\t"; io.print comment
+    end
+
     io.print "\n"
   end
 
-  # Write SAM header.
-  def self.write_sam_hdr(io : IO, mi : MmIdx?, version : String = LIB_VERSION) : Nil
+  # Write SAM header. If `rg_line` (from -R) is given it is emitted verbatim
+  # and the trailing `ID:...` value is reused as the RG tag for each record.
+  def self.write_sam_hdr(io : IO, mi : MmIdx?, version : String = LIB_VERSION,
+                         rg_line : String? = nil) : Nil
     io.puts "@HD\tVN:1.6\tSO:unsorted\tGO:query"
     if mi
       mi.seq.each do |seq_rec|
         io.puts "@SQ\tSN:#{seq_rec.name}\tLN:#{seq_rec.len}"
       end
     end
+    if rg_line
+      normalized_rg = rg_line.gsub("\\t", "\t")
+      io.puts normalized_rg.starts_with?("@RG") ? normalized_rg : "@RG\t#{normalized_rg}"
+    end
     io.puts "@PG\tID:minimap2\tPN:minimap2\tVN:#{version}"
+  end
+
+  # Extract the RG ID from a -R header line ("@RG\tID:foo\tSM:bar" → "foo").
+  def self.rg_id(rg_line : String?) : String?
+    return nil unless rg_line
+    rg_line.gsub("\\t", "\t").split('\t').each do |field|
+      if field.starts_with?("ID:")
+        return field[3..]
+      end
+    end
+    nil
   end
 
   # Write one SAM record.
   def self.write_sam(io : IO, mi : MmIdx, t : BSeq1, r : MmReg1, n_regs : Int32,
                      all_regs : Array(MmReg1), opt_flag : Int64,
-                     tseq : Array(UInt8)? = nil, qseq : Array(UInt8)? = nil) : Nil
+                     tseq : Array(UInt8)? = nil, qseq : Array(UInt8)? = nil,
+                     rg_id : String? = nil) : Nil
     ep = r.p
     ctg_name = r.rid >= 0 && r.rid < mi.seq.size ? mi.seq[r.rid].name : "*"
     mapq = r.mapq.clamp(0_u32, 60_u32)
     flag = 0_u32
 
     flag |= 0x10_u32 if r.rev?          # reverse complement
-    flag |= 0x100_u32 unless r.sam_pri? # not primary
-    flag |= 0x800_u32 if r.is_alt?      # supplementary
+    # secondary (0x100): parent != id
+    # supplementary (0x800): parent == id but not sam_pri
+    # (mirrors mm_write_sam3() in format.c; is_alt is unrelated to SAM flags)
+    if r.parent >= 0 && r.parent != r.id
+      flag |= 0x100_u32
+    elsif !r.sam_pri?
+      flag |= 0x800_u32
+    end
 
     io.print t.name; io.print "\t"; io.print flag
     io.print "\t"; io.print ctg_name
@@ -328,31 +362,34 @@ module Minimap2
 
     if ep
       sb = String::Builder.new
-      # soft-clip at start
-      if r.qs > 0
-        sb << r.qs; sb << "S"
+      # soft-clip: for reverse-strand alignments the 5'/3' clips swap
+      # (mirrors write_sam_cigar() in format.c).
+      clip5 = r.rev? ? t.l_seq - r.qe : r.qs
+      clip3 = r.rev? ? r.qs : t.l_seq - r.qe
+      if clip5 > 0
+        sb << clip5; sb << "S"
       end
       write_cigar(sb, ep, false)
-      if t.l_seq - r.qe > 0
-        sb << (t.l_seq - r.qe); sb << "S"
+      if clip3 > 0
+        sb << clip3; sb << "S"
       end
       io.print sb.to_s
     else
       io.print "*"
     end
 
-    io.print "\t*\t0\t0\t" # RNEXT, PNEXT, TLEN
+    io.print "\t*\t0\t0\t" # RNEXT, PNEXT, TLEN (single-segment only)
 
-    # SEQ
-    if (opt_flag & F_NO_QUAL) == 0
-      io.print t.seq
+    # SEQ: for reverse-strand alignments output the reverse-complement.
+    if r.rev?
+      io.print t.seq.reverse.tr("ACGTUacgtuNn", "TGCAAtgcaaNn")
     else
-      io.print "*"
+      io.print t.seq
     end
 
     io.print "\t"
-    # QUAL
-    if t.qual
+    # QUAL: for reverse-strand alignments output the reversed quality string.
+    if t.qual && (opt_flag & F_NO_QUAL) == 0
       if r.rev?
         io.print t.qual.try(&.reverse)
       else
@@ -360,6 +397,11 @@ module Minimap2
       end
     else
       io.print "*"
+    end
+
+    # RG tag (read group) — placed before other tags like C minimap2
+    if rg_id
+      io.print "\tRG:Z:"; io.print rg_id
     end
 
     # Optional tags
@@ -402,6 +444,10 @@ module Minimap2
         write_md(sb, tseq, qseq, ep)
         io.print sb.to_s
       end
+    end
+
+    if (opt_flag & F_COPY_COMMENT) != 0 && (comment = t.comment)
+      io.print "\t"; io.print comment
     end
 
     io.print "\n"

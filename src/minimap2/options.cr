@@ -256,6 +256,11 @@ module Minimap2
       STDERR.puts "[ERROR] --for-only and --rev-only can't be applied at the same time" if Minimap2.verbose >= 1
       return -3
     end
+     if (mo.flag & F_QSTRAND) != 0 &&
+       ((mo.flag & (F_OUT_SAM | F_FRAG_MODE | F_SPLICE)) != 0 || (io.flag & I_HPC) != 0)
+      STDERR.puts "[ERROR] --qstrand is incompatible with SAM, fragment, splice and HPC modes" if Minimap2.verbose >= 1
+      return -3
+    end
     if mo.e <= 0 || mo.q <= 0
       STDERR.puts "[ERROR] -O and -E must be positive" if Minimap2.verbose >= 1
       return -1

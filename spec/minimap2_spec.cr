@@ -267,6 +267,81 @@ describe Minimap2 do
       # ACGT -> 0,1,2,3
       buf.should eq([0_u8, 1_u8, 2_u8, 3_u8])
     end
+
+    it "preserves minimizer lookups across .mmi dump/load" do
+      mi = Minimap2::MmIdx.from_strings(5, 10, false, 4, [ref_seq], [ref_name])
+      minimizers = [] of Minimap2::Mm128
+      Minimap2.mm_sketch(ref_seq, ref_seq.size, w: 5, k: 10, rid: 0_u32,
+        is_hpc: false, p: minimizers)
+
+      dumped = IO::Memory.new
+      mi.dump(dumped)
+      dumped.rewind
+      loaded = Minimap2::MmIdx.load(dumped).not_nil!
+
+      minimizers.each do |minimizer|
+        key = minimizer.x >> 8
+        loaded.get(key).should_not be_nil
+      end
+      loaded.name2id(ref_name).should eq(0)
+    end
+
+    it "rejects sequence names longer than the .mmi format permits" do
+      mi = Minimap2::MmIdx.from_strings(5, 10, false, 4, [ref_seq], ["x" * 256])
+      expect_raises(ArgumentError) { mi.dump(IO::Memory.new) }
+    end
+  end
+
+  describe "output formatting" do
+    it "writes reverse SAM sequence, clipping and supplementary flag correctly" do
+      mi = Minimap2::MmIdx.from_strings(5, 3, false, 2, ["A" * 100], ["chr1"])
+      read = Minimap2::BSeq1.new("read1", "ACGTAACC", "abcdefgh")
+      extra = Minimap2::MmExtra.new
+      extra.cigar << (4_u32 << 4 | Minimap2::CIGAR_MATCH.to_u32)
+      reg = Minimap2::MmReg1.new
+      reg.id = reg.parent = 0
+      reg.sam_pri = false
+      reg.rev = true
+      reg.rid = 0
+      reg.qs = 1; reg.qe = 5
+      reg.rs = 10; reg.re = 14
+      reg.mlen = reg.blen = 4
+      reg.p = extra
+
+      output = IO::Memory.new
+      Minimap2.write_sam(output, mi, read, reg, 1, [reg], 0_i64)
+      fields = output.to_s.chomp.split('\t')
+      fields[1].should eq("2064") # reverse + supplementary
+      fields[5].should eq("3S4M1S")
+      fields[9].should eq("GGTTACGT")
+      fields[10].should eq("hgfedcba")
+    end
+
+    it "uses F_OUT_CG independently of MD and writes qstrand coordinates" do
+      mi = Minimap2::MmIdx.from_strings(5, 3, false, 2, ["A" * 100], ["chr1"])
+      read = Minimap2::BSeq1.new("read1", "AAAA")
+      extra = Minimap2::MmExtra.new
+      extra.cigar << (4_u32 << 4 | Minimap2::CIGAR_MATCH.to_u32)
+      reg = Minimap2::MmReg1.new
+      reg.id = reg.parent = 0
+      reg.sam_pri = true
+      reg.rev = true
+      reg.rid = 0
+      reg.qe = 4
+      reg.rs = 10; reg.re = 14
+      reg.mlen = reg.blen = 4
+      reg.p = extra
+
+      output = IO::Memory.new
+      flags = Minimap2::F_OUT_CG | Minimap2::F_OUT_MD | Minimap2::F_QSTRAND
+      seq = Minimap2.encode_seq("AAAA")
+      Minimap2.write_paf(output, mi, read, reg, flags, -1, seq, seq)
+      fields = output.to_s.chomp.split('\t')
+      fields[7].should eq("86")
+      fields[8].should eq("90")
+      output.to_s.should contain("\tcg:Z:4M")
+      output.to_s.should contain("\tMD:Z:4")
+    end
   end
 
   # ---------------------------------------------------------------------------

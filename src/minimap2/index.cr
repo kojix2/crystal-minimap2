@@ -301,6 +301,9 @@ module Minimap2
       io.write_bytes(@flag.to_u32, IO::ByteFormat::LittleEndian)
       @seq.each do |srec|
         name_b = srec.name.to_slice
+        if name_b.size > UInt8::MAX
+          raise ArgumentError.new("sequence name exceeds the .mmi 255-byte limit: #{srec.name}")
+        end
         io.write_byte(name_b.size.to_u8)
         io.write(name_b)
         io.write_bytes(srec.len, IO::ByteFormat::LittleEndian)
@@ -310,11 +313,14 @@ module Minimap2
         flat_p = bkt.positions
         entries = [] of {UInt64, UInt64}
         bkt.each_entry do |key, positions|
+          # The bucket index is implied by the bucket being written, so the
+          # on-disk key is (key_without_bucket_bits << 1) | singleton_bit,
+          # exactly as in C mm_idx_dump().
           if positions.size == 1
             # singleton: key (with singleton bit) → y_value
-            entries << {(key << @b) << 1 | 1_u64, positions[0]}
+            entries << {(key << 1) | 1_u64, positions[0]}
           else
-            entries << {(key << @b) << 1, (positions.offset.to_u64 << 32) | positions.size.to_u64}
+            entries << {key << 1, (positions.offset.to_u64 << 32) | positions.size.to_u64}
           end
         end
         io.write_bytes(flat_p.size.to_u32, IO::ByteFormat::LittleEndian)
@@ -351,6 +357,7 @@ module Minimap2
         name = l > 0 ? String.new(Bytes.new(l).tap { |buf| io.read_fully(buf) }) : ""
         len = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian)
         mi.seq << IdxSeq.new(name, sum_len, len)
+        mi.name_map[name] = mi.seq.size.to_u32 - 1 unless name.empty?
         sum_len += len
       end
       (1 << b).times do |i|
@@ -361,7 +368,9 @@ module Minimap2
         size.times do
           raw_key = io.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
           val = io.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
-          key = raw_key >> b + 1 # strip bucket bits and singleton bit
+          # On-disk key is (key_without_bucket_bits << 1) | singleton_bit;
+          # the bucket bits are implied by the bucket being read.
+          key = raw_key >> 1
           if (raw_key & 1) == 1
             bkt.keys << key
             bkt.hits << MmIdxHits.singleton(val)

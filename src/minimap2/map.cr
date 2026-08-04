@@ -290,6 +290,12 @@ module Minimap2
     unless is_sr || (opt.flag & F_QSTRAND) != 0
       est_err(mi, qlen_sum, regs0, a, mini_pos.size, mini_pos)
       n_regs0 = filter_strand_retained(regs0)
+      # filter_strand_retained() compacts valid hits to the front but does not
+      # resize the array; truncate so downstream code never sees stale hits
+      # (see audit H-04).
+      if n_regs0 < regs0.size
+        regs0.truncate(0, n_regs0)
+      end
     end
 
     if n_segs == 1

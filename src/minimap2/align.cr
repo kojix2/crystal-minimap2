@@ -583,8 +583,13 @@ module Minimap2
       align_one_reg(opt, mi, qlen, qseq_fwd, r, a)
     end
 
-    # Filter after alignment
+    # Filter after alignment. filter_regs() compacts valid hits to the front
+    # but does not resize the array; truncate so downstream code never sees
+    # stale hits (see audit H-04).
     filter_regs(opt, qlen, n_regs_ref, regs)
+    if n_regs_ref.value < regs.size
+      regs.truncate(0, n_regs_ref.value)
+    end
 
     regs
   end

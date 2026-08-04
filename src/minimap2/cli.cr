@@ -21,6 +21,7 @@ module Minimap2
     end
     out_file : String? = nil
     index_file : String? = nil # -d
+    rg_line : String? = nil    # -R
     out_sam = false            # -a
     with_cigar = false         # -c
     with_eqx = false           # --eqx
@@ -56,13 +57,18 @@ module Minimap2
       end
 
       # ── Mapping ──────────────────────────────────────────────────────────────
-      opt.on("-f FLOAT", "Filter top FLOAT fraction of repetitive minimizers [#{mo.mid_occ_frac}]") do |v|
-        value = v.to_f64
+      opt.on("-f FLOAT[,INT]", "Filter top FLOAT fraction of repetitive minimizers [#{mo.mid_occ_frac}]") do |v|
+        # Mirrors main.c:325-331 — the optional second field sets max_occ.
+        parts = v.split(',')
+        value = parts[0].to_f64
         if value < 1.0
           mo.mid_occ_frac = value.to_f32
           mo.mid_occ = 0
         else
           mo.mid_occ = (value + 0.499).to_i32
+        end
+        if max_occ_str = parts[1]?
+          mo.max_occ = max_occ_str.to_i
         end
       end
       opt.on("-g NUM", "Stop chain elongation if gap exceeds NUM bp [#{mo.max_gap}]") do |v|
@@ -80,7 +86,8 @@ module Minimap2
         mo.min_chain_score = v.to_i
       end
       opt.on("-X", "Skip self and dual mappings (all-vs-all mode)") do
-        mo.flag |= F_NO_DUAL | F_NO_DIAG
+        # Mirrors main.c: -X implies F_ALL_CHAINS | F_NO_DIAG | F_NO_DUAL | F_NO_LJOIN
+        mo.flag |= F_ALL_CHAINS | F_NO_DIAG | F_NO_DUAL | F_NO_LJOIN
       end
       opt.on("-p FLOAT", "Min secondary-to-primary score ratio [#{mo.pri_ratio}]") do |v|
         mo.pri_ratio = v.to_f32
@@ -114,38 +121,47 @@ module Minimap2
       opt.on("-s INT", "Minimal peak DP alignment score [#{mo.min_dp_max}]") do |v|
         mo.min_dp_max = v.to_i
       end
-      opt.on("-u CHAR", "GT-AG direction: f=forward, b=backward, n=no, r=reverse [n]") do |v|
+      opt.on("-u CHAR", "GT-AG direction: f=forward, b=both, n=none, r=reverse [b]") do |v|
+        # Mirrors main.c:332-340 — splice presets start with both bits set,
+        # so strand selection must clear the unwanted bit.
         case v
         when "f"
-          mo.flag |= F_SPLICE_FOR
+          mo.flag &= ~F_SPLICE_REV
         when "b"
-          mo.flag |= F_SPLICE_REV
+          mo.flag |= F_SPLICE_FOR | F_SPLICE_REV
         when "n"
           mo.flag &= ~(F_SPLICE_FOR | F_SPLICE_REV)
         when "r"
-          mo.flag |= F_SPLICE_REV | F_SPLICE_FOR
+          mo.flag &= ~F_SPLICE_FOR
+        else
+          STDERR.puts "[ERROR] unknown argument to -u: '#{v}' (expected f, b, n or r)"
+          exit 1
         end
       end
 
       # ── Input / Output ───────────────────────────────────────────────────────
       opt.on("-a", "Output in SAM format (PAF by default)") do
         out_sam = true
-        mo.flag |= F_CIGAR
+        # Mirrors main.c: -a sets F_OUT_SAM | F_CIGAR
+        mo.flag |= F_OUT_SAM | F_CIGAR
       end
       opt.on("-o FILE", "Output alignments to FILE [stdout]") do |v|
         out_file = v
       end
       opt.on("-c", "Output CIGAR in PAF") do
         with_cigar = true
-        mo.flag |= F_CIGAR
+        # Mirrors main.c: -c sets F_OUT_CG | F_CIGAR
+        mo.flag |= F_OUT_CG | F_CIGAR
       end
       opt.on("--cs", "Output cs tag (short form)") do
-        mo.flag |= F_OUT_CS
+        # Mirrors main.c: --cs implies CIGAR computation
+        mo.flag |= F_OUT_CS | F_CIGAR
       end
       opt.on("--cs-long", "Output cs tag (long form)") do
-        mo.flag |= F_OUT_CS | F_OUT_CS_LONG
+        mo.flag |= F_OUT_CS | F_OUT_CS_LONG | F_CIGAR
       end
       opt.on("--MD", "Output MD tag") do
+        # Mirrors main.c: --MD implies CIGAR computation
         mo.flag |= F_OUT_MD | F_CIGAR
       end
       opt.on("--eqx", "Write =/X CIGAR operators") do
@@ -158,8 +174,8 @@ module Minimap2
       opt.on("-L", "Write long CIGARs using the CG tag") do
         mo.flag |= F_LONG_CIGAR
       end
-      opt.on("-R STR", "Read group header line") do |v|
-        # Stored for later use in SAM header
+      opt.on("-R STR", "Read group header line (e.g. '@RG\\tID:foo\\tSM:bar')") do |v|
+        rg_line = v
       end
       opt.on("-y", "Copy FASTA/Q comments to output") do
         mo.flag |= F_COPY_COMMENT
@@ -188,9 +204,19 @@ module Minimap2
       opt.on("--no-end-flt", "Disable end filtering") do
         mo.flag |= F_NO_END_FLT
       end
+      opt.on("--qstrand", "Segment query on the query strand") do
+        mo.flag |= F_QSTRAND | F_NO_INV
+      end
       opt.on("--secondary=yes|no", "Whether to output secondary alignments") do |v|
-        if v == "no"
+        # Mirrors main.c: "yes" clears the preset's F_NO_PRINT_2ND bit.
+        case v
+        when "no"
           mo.flag |= F_NO_PRINT_2ND
+        when "yes"
+          mo.flag &= ~F_NO_PRINT_2ND
+        else
+          STDERR.puts "[ERROR] unknown argument to --secondary: '#{v}' (expected yes or no)"
+          exit 1
         end
       end
       opt.on("-t INT", "Number of threads [#{n_threads}]") do |v|
@@ -264,6 +290,30 @@ module Minimap2
       return 1
     end
 
+    # ── Reject unimplemented feature combinations ─────────────────────────────
+    # The audit identified these as silently accepted but producing wrong
+    # output. Fail loudly until they are implemented.
+    if (mo.flag & F_FRAG_MODE) != 0
+      STDERR.puts "[ERROR] paired/fragment mapping is not yet output-compatible (see audit C-02/C-03/C-04)"
+      return 1
+    end
+    if (mo.flag & F_SPLICE) != 0
+      STDERR.puts "[ERROR] splice alignment is not yet output-compatible (see audit H-03)"
+      return 1
+    end
+    if (mo.flag & F_SOFTCLIP) != 0
+      STDERR.puts "[ERROR] -Y/--softclip is not yet implemented (see audit H-08)"
+      return 1
+    end
+    if (mo.flag & F_LONG_CIGAR) != 0
+      STDERR.puts "[ERROR] -L/--long-cigar is not yet implemented (see audit H-08)"
+      return 1
+    end
+    if mo.split_prefix
+      STDERR.puts "[ERROR] --split-prefix is not yet implemented (see audit C-09)"
+      return 1
+    end
+
     # ── Open output ──────────────────────────────────────────────────────────
     out_io : IO = if fn = out_file
       File.open(fn, "w")
@@ -272,13 +322,12 @@ module Minimap2
     end
 
     # ── Build / load index ───────────────────────────────────────────────────
-    reader = MmIdxReader.new(target_fn, io)
+    # MmIdxReader keeps one output stream open, so multipart index dumps append
+    # every part instead of repeatedly truncating the destination.
+    reader = MmIdxReader.new(target_fn, io, index_file)
     indices = [] of MmIdx
     while mi = reader.read(n_threads)
       mapopt_update(mo, mi)
-      if idx_fn = index_file
-        File.open(idx_fn, "wb") { |file| mi.dump(file) }
-      end
       indices << mi
     end
     reader.close
@@ -289,15 +338,28 @@ module Minimap2
       return 1
     end
 
-    # Index-only mode (no queries).
+    # Index-only mode: -d without query files is fine; otherwise missing input
+    # is an error (mirrors main.c:430-433).
     if query_fns.empty?
       out_io.close unless out_file.nil?
+      if index_file.nil? && MmIdx.idx?(target_fn) == 0_i64
+        STDERR.puts "[ERROR] missing input: please specify a query file to map or use -d to dump the index"
+        return 1
+      end
       return 0
     end
 
+    if indices.size > 1
+      STDERR.puts "[ERROR] mapping against a multipart index is not yet supported (see audit C-09)"
+      out_io.close unless out_file.nil?
+      return 1
+    end
+
     # ── Write SAM header if -a ────────────────────────────────────────────────
+    rg_id : String? = nil
     if out_sam
-      write_sam_hdr(out_io, indices.first)
+      write_sam_hdr(out_io, indices.first, LIB_VERSION, rg_line)
+      rg_id = Minimap2.rg_id(rg_line)
     end
 
     # ── Parallel mapping context ──────────────────────────────────────────────
@@ -334,9 +396,9 @@ module Minimap2
                 tbuf = MmTbuf.new
                 regs = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name, tbuf)
                 regs.each do |reg|
-                  write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo, tbuf.rep_len)
+                  write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo, tbuf.rep_len, rg_id)
                 end
-                write_sam_unmapped(out_io, bseq) if out_sam && regs.empty?
+                write_sam_unmapped(out_io, bseq, mo.flag, rg_id) if out_sam && regs.empty?
               else
                 # Paired-end: apply pe_ori revcomp and map as fragment
                 seqs_str = Array(String).new(n_segs)
@@ -360,9 +422,9 @@ module Minimap2
                   bseq = group[seg_i]
                   regs = all_regs[seg_i]
                   regs.each do |reg|
-                    write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo, tbuf.rep_len)
+                    write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo, tbuf.rep_len, rg_id)
                   end
-                  write_sam_unmapped(out_io, bseq) if out_sam && regs.empty?
+                  write_sam_unmapped(out_io, bseq, mo.flag, rg_id) if out_sam && regs.empty?
                 end
               end
             end
@@ -376,9 +438,9 @@ module Minimap2
               pair_idx = seq_i * indices.size + mi_i
               regs = results[pair_idx] || [] of MmReg1
               regs.each do |reg|
-                write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo, rep_lens[pair_idx])
+                write_output(out_io, out_sam, midx, bseq, reg, regs.size, regs, mo, rep_lens[pair_idx], rg_id)
               end
-              write_sam_unmapped(out_io, bseq) if out_sam && regs.empty?
+              write_sam_unmapped(out_io, bseq, mo.flag, rg_id) if out_sam && regs.empty?
             end
           end
         end # else (not frag mode)
@@ -438,14 +500,12 @@ module Minimap2
     midx = indices[mi_i]
     bseq = seqs[seq_i]
 
-    begin
-      tbuf = MmTbuf.new
-      results[pair_idx] = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name, tbuf)
-      rep_lens[pair_idx] = tbuf.rep_len
-    rescue ex
-      STDERR.puts "[WARNING] mapping failed for '#{bseq.name}': #{ex.message}"
-      results[pair_idx] = [] of MmReg1
-    end
+    # Do not swallow mapping errors: an internal failure (index corruption,
+    # range error, DP bug) must not be silently converted into an "unmapped"
+    # read with a successful exit status (see audit H-09).
+    tbuf = MmTbuf.new
+    results[pair_idx] = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name, tbuf)
+    rep_lens[pair_idx] = tbuf.rep_len
   end
 
   # ---------------------------------------------------------------------------
@@ -455,16 +515,18 @@ module Minimap2
                                 midx : MmIdx, bseq : BSeq1,
                                 reg : MmReg1, n_regs : Int32,
                                 all_regs : Array(MmReg1),
-                                mo : MmMapOpt, rep_len : Int32) : Nil
+                                mo : MmMapOpt, rep_len : Int32,
+                                rg_id : String? = nil) : Nil
+                  return if (mo.flag & F_NO_PRINT_2ND) != 0 && reg.parent >= 0 && reg.parent != reg.id
     need_seq = (mo.flag & (F_OUT_CS | F_OUT_CS_LONG | F_OUT_MD)) != 0
     if out_sam
       if need_seq && reg.p
         tseq_arr = get_ref_seq(midx, reg.rid, reg.rs, reg.re, false)
         qseq_arr = encode_seq(bseq.seq[reg.qs...reg.qe])
         qseq_arr = rev_comp(qseq_arr) if reg.rev?
-        write_sam(out_io, midx, bseq, reg, n_regs, all_regs, mo.flag, tseq_arr, qseq_arr)
+        write_sam(out_io, midx, bseq, reg, n_regs, all_regs, mo.flag, tseq_arr, qseq_arr, rg_id)
       else
-        write_sam(out_io, midx, bseq, reg, n_regs, all_regs, mo.flag)
+        write_sam(out_io, midx, bseq, reg, n_regs, all_regs, mo.flag, nil, nil, rg_id)
       end
     else
       if need_seq && reg.p
@@ -512,12 +574,19 @@ module Minimap2
   # ---------------------------------------------------------------------------
   # Write an unmapped SAM record (flag 4).
   # ---------------------------------------------------------------------------
-  private def self.write_sam_unmapped(io : IO, t : BSeq1) : Nil
+  private def self.write_sam_unmapped(io : IO, t : BSeq1, opt_flag : Int64,
+                                      rg_id : String? = nil) : Nil
     io.print t.name
     io.print "\t4\t*\t0\t0\t*\t*\t0\t0\t"
     io.print t.seq
     io.print "\t"
-    io.print t.qual || "*"
+    io.print (opt_flag & F_NO_QUAL) == 0 ? (t.qual || "*") : "*"
+    if rg_id
+      io.print "\tRG:Z:"; io.print rg_id
+    end
+    if (opt_flag & F_COPY_COMMENT) != 0 && (comment = t.comment)
+      io.print "\t"; io.print comment
+    end
     io.print "\n"
   end
 
