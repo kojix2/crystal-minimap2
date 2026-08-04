@@ -87,26 +87,41 @@ module Minimap2
           st = last0 + 1
           en = i
           max_high_occ = ((pe - ps).to_f / dist + 0.499).to_i32
-          chosen = Set(Int32).new
+          max_high_occ = MAX_MAX_HIGH_OCC if max_high_occ > MAX_MAX_HIGH_OCC
+          selected = StaticArray(Int32, MAX_MAX_HIGH_OCC).new(-1)
+          selected_count = 0
+
           if max_high_occ > 0
-            max_high_occ = MAX_MAX_HIGH_OCC if max_high_occ > MAX_MAX_HIGH_OCC
-            # Keep the least frequent minimizers in this high-occurrence run.
-            run = (st...en).to_a
-            run.sort_by! { |j| {seeds[j].n, j} }
-            chosen = run.first(max_high_occ).to_set
-          end
-          (st...en).each do |j|
-            if chosen.includes?(j)
-              seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, false, seeds[j].is_tandem?)
-            else
-              seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, true, seeds[j].is_tandem?)
+            (st...en).each do |j|
+              next if seeds[j].n > max_max_occ
+
+              if selected_count < max_high_occ
+                pos = selected_count
+                selected_count += 1
+              else
+                worst_j = selected[max_high_occ - 1]
+                worst_n = seeds[worst_j].n
+                next if seeds[j].n > worst_n || (seeds[j].n == worst_n && j >= worst_j)
+                pos = max_high_occ - 1
+              end
+
+              while pos > 0
+                prev_j = selected[pos - 1]
+                prev_n = seeds[prev_j].n
+                break if prev_n < seeds[j].n || (prev_n == seeds[j].n && prev_j < j)
+                selected[pos] = prev_j
+                pos -= 1
+              end
+              selected[pos] = j
             end
           end
-          # Filter anything exceeding max_max_occ
+
           (st...en).each do |j|
-            if seeds[j].n > max_max_occ
-              seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, true, seeds[j].is_tandem?)
-            end
+            seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, true, seeds[j].is_tandem?)
+          end
+          selected_count.times do |idx|
+            j = selected[idx]
+            seeds[j] = MmSeed.new(seeds[j].n, seeds[j].q_pos, seeds[j].q_span, seeds[j].cr, seeds[j].seg_id, false, seeds[j].is_tandem?)
           end
         end
         last0 = i

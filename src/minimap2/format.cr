@@ -375,9 +375,7 @@ module Minimap2
       io.print "\tAS:i:"; io.print ep.dp_score
 
       # nn tag
-      if ep.n_ambi > 0
-        io.print "\tnn:i:"; io.print ep.n_ambi
-      end
+      io.print "\tnn:i:"; io.print ep.n_ambi
 
       # ts tag (transcript strand)
       if ep.trans_strand > 0

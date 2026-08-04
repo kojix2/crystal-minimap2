@@ -20,13 +20,15 @@ module Minimap2
   end
 
   # Filter minimizers overlapping with low-complexity (SDUST) regions.
-  private def self.dust_minier(mv : Array(Mm128), l_seq : Int32,
+  private def self.dust_minier(mv : Array(Mm128), start : Int32, l_seq : Int32,
                                seq : String, sdust_thres : Int32) : Int32
-    return mv.size if sdust_thres <= 0
+    return mv.size if sdust_thres <= 0 || start >= mv.size
     dreg = sdust(seq.to_slice, l_seq, sdust_thres, 64)
     u = 0
-    k = 0
-    mv.each_with_index do |anchor, j|
+    k = start
+    j = start
+    while j < mv.size
+      anchor = mv[j]
       q_pos = (anchor.y.to_u32 >> 1).to_i32
       span = (anchor.x & 0xff).to_i32
       s = q_pos - (span - 1); e = s + span
@@ -43,10 +45,15 @@ module Minimap2
           l += ee - ss
           v += 1
         end
-        mv[k] = mv[j]; k += 1 if l <= span >> 1
+        if l <= span >> 1
+          mv[k] = mv[j]
+          k += 1
+        end
       else
-        mv[k] = mv[j]; k += 1
+        mv[k] = mv[j]
+        k += 1
       end
+      j += 1
     end
     k
   end
@@ -65,7 +72,7 @@ module Minimap2
         mv[j] = Mm128.new(mv[j].x, mv[j].y &+ (sum << 1).to_u64)
       end
       if opt.sdust_thres > 0
-        new_n = n + dust_minier(mv[n..], qlens[i], seqs[i], opt.sdust_thres)
+        new_n = dust_minier(mv, n, qlens[i], seqs[i], opt.sdust_thres)
         mv.delete_at(new_n, mv.size - new_n) if mv.size > new_n
       end
       sum += qlens[i]

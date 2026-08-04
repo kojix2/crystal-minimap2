@@ -102,6 +102,33 @@ module Minimap2
     end
   end
 
+  @[AlwaysInline]
+  private def self.max4_i32(a : Int32, b : Int32, c : Int32, d : Int32) : Int32
+    {% if flag?(:x86_64) %}
+      ret = uninitialized Int32
+      asm("movd xmm0, $1
+           pinsrd xmm0, $2, 1
+           pinsrd xmm0, $3, 2
+           pinsrd xmm0, $4, 3
+           movdqa xmm1, xmm0
+           pshufd xmm1, xmm1, 0xEE
+           pmaxsd xmm0, xmm1
+           movdqa xmm1, xmm0
+           pshufd xmm1, xmm1, 0x55
+           pmaxsd xmm0, xmm1
+           movd $0, xmm0"
+          : "=r"(ret)
+          : "r"(a), "r"(b), "r"(c), "r"(d)
+          : "xmm0", "xmm1"
+          : "intel")
+      ret
+    {% else %}
+      h = a > b ? a : b
+      h = c if c > h
+      d > h ? d : h
+    {% end %}
+  end
+
   # ---------------------------------------------------------------------------
   # apply_zdrop: check and update z-drop.  Returns true if triggered.
   # ---------------------------------------------------------------------------
@@ -167,7 +194,10 @@ module Minimap2
     # f and f2 are computed left-to-right within each row
 
     # Backtrack matrix: p[i * tlen + j] stores state bits
-    p_mat = with_cigar ? Array(UInt8).new(qlen * tlen, 0_u8) : nil
+    band_width = {tlen, bw * 2 + 1}.min
+    p_mat = with_cigar ? Array(UInt8).new(qlen * band_width, 0_u8) : nil
+    row_starts = with_cigar ? Array(Int32).new(qlen, 0) : nil
+    row_ends = with_cigar ? Array(Int32).new(qlen, -1) : nil
 
     # Initialise first row (i = 0): free opening in extension mode
     h_prev[0] = 0 # extension: start at (0,0) with score 0
@@ -183,6 +213,11 @@ module Minimap2
 
       f = neg; f2 = neg
       h_curr.fill(neg)
+      if with_cigar && (starts = row_starts) && (ends = row_ends)
+        starts[i] = j_lo
+        ends[i] = j_hi
+      end
+      row_base = i * band_width
 
       j_lo.upto(j_hi) do |j|
         # Deletion from above (E)
@@ -212,12 +247,8 @@ module Minimap2
         ti = target[j].to_i32
         sc = (h_diag == neg) ? neg : h_diag + mat[qi * m + ti].to_i32
 
-        # H — max of 5 values without allocating an array
-        h = sc
-        h = e_val if e_val > h
-        h = e2_val if e2_val > h
-        h = f_new if f_new > h
-        h = f2_new if f2_new > h
+        h = max4_i32(e_val, e2_val, f_new, f2_new)
+        h = sc if sc > h
         h_curr[j] = h
 
         # Backtrack info
@@ -238,7 +269,7 @@ module Minimap2
             bt = 4_u8
             bt |= 0x40_u8 if f2_new == f2 - e2
           end
-          pm[i * tlen + j] = bt
+          pm[row_base + (j - j_lo)] = bt
         end
 
         # Track max reaching query end
@@ -281,7 +312,11 @@ module Minimap2
       cj = extz_only ? max_ti : tlen - 1
 
       while ci >= 0 && cj >= 0
-        bt = pm[ci * tlen + cj]
+        break unless (starts = row_starts) && (ends = row_ends)
+        j_lo = starts[ci]
+        j_hi = ends[ci]
+        break if cj < j_lo || cj > j_hi
+        bt = pm[ci * band_width + (cj - j_lo)]
         state = bt & 7
         case state
         when 0 # match/mismatch
@@ -834,7 +869,7 @@ module Minimap2
   # ---------------------------------------------------------------------------
   # Reverse complement a 4-bit encoded sequence.
   # ---------------------------------------------------------------------------
-  def self.seq_rev_comp(len : Int32, seq : Array(UInt8)) : Array(UInt8)
+  def self.seq_rev_comp(len : Int32, seq : Array(UInt8) | Slice(UInt8)) : Array(UInt8)
     result = Array(UInt8).new(len, 0_u8)
     len.times do |i|
       c = seq[len - 1 - i]

@@ -40,21 +40,25 @@ module Minimap2
   # Encode a query string (ASCII) into 4-bit bases using SEQ_NT4_TABLE.
   def self.encode_seq(s : String | Bytes) : Array(UInt8)
     bytes = s.is_a?(String) ? s.to_slice : s
-    result = Array(UInt8).new(bytes.size)
-    bytes.each { |b| result << SEQ_NT4_TABLE[b.to_i] }
+    result = Array(UInt8).new(bytes.size, 4_u8)
+    i = 0
+    while i < bytes.size
+      result[i] = SEQ_NT4_TABLE[bytes[i].to_i]
+      i += 1
+    end
     result
   end
 
   # Build reverse complement of a 4-bit encoded sequence.
   # Delegates to ksw2.seq_rev_comp (shared implementation).
-  def self.rev_comp(seq : Array(UInt8)) : Array(UInt8)
+  def self.rev_comp(seq : Array(UInt8) | Slice(UInt8)) : Array(UInt8)
     seq_rev_comp(seq.size, seq)
   end
 
   # Core alignment between a pair of query and target windows.
   # Fills in r.p with CIGAR and dp scores.
-  private def self.align_pair(opt : MmMapOpt, qlen : Int32, qseq : Array(UInt8),
-                              tlen : Int32, tseq : Array(UInt8),
+  private def self.align_pair(opt : MmMapOpt, qlen : Int32, qseq : Array(UInt8) | Slice(UInt8),
+                              tlen : Int32, tseq : Array(UInt8) | Slice(UInt8),
                               mat : Array(Int8), w : Int32,
                               end_bonus : Int32, zdrop : Int32, flag : Int32) : KswExtz
     if opt.max_sw_mat > 0 && tlen.to_i64 * qlen > opt.max_sw_mat
@@ -77,7 +81,7 @@ module Minimap2
   end
 
   # Compute r.mlen, r.blen, r.div from CIGAR (mirrors mm_update_extra).
-  private def self.update_extra(r : MmReg1, qseq : Array(UInt8), tseq : Array(UInt8),
+  private def self.update_extra(r : MmReg1, qseq : Array(UInt8) | Slice(UInt8), tseq : Array(UInt8) | Slice(UInt8),
                                 mat : Array(Int8), q : Int32, e : Int32, is_eqx : Bool) : Nil
     ep = r.p
     return unless ep
@@ -175,11 +179,11 @@ module Minimap2
     return if qlen_aln <= 0 || tlen_aln <= 0
 
     # Retrieve query sequence for this region
-    qseq : Array(UInt8)
+    qseq : Array(UInt8) | Slice(UInt8)
     if is_rev
-      qseq = rev_comp(qseq_fwd[qs...qe])
+      qseq = rev_comp(Slice.new(qseq_fwd.to_unsafe + qs, qlen_aln))
     else
-      qseq = qseq_fwd[qs...qe]
+      qseq = Slice.new(qseq_fwd.to_unsafe + qs, qlen_aln)
     end
 
     # Retrieve target sequence
