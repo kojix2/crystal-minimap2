@@ -5,12 +5,12 @@ module Minimap2
   # After worker_post: a[] is cleared and h[] is the lookup table.
   # ---------------------------------------------------------------------------
   private class MmIdxBucket
-    property a : Array(Mm128)                # collecting phase
-    property h : Hash(UInt64, Array(UInt64)) # minimizer_key → sorted positions
+    property a : Array(Mm128)               # collecting phase
+    property h : Hash(UInt64, MmIdxHits)    # minimizer_key → sorted positions
 
     def initialize
       @a = [] of Mm128
-      @h = {} of UInt64 => Array(UInt64)
+      @h = {} of UInt64 => MmIdxHits
     end
   end
 
@@ -98,14 +98,19 @@ module Minimap2
           k += 1
         end
         key = x0 >> @b # strip bucket-index bits
-        positions = Array(UInt64).new(k - j, 0_u64)
-        pos_i = 0
-        j.upto(k - 1) do |src_i|
-          positions[pos_i] = bkt.a[src_i].y
-          pos_i += 1
+        count = k - j
+        if count == 1
+          h[key] = MmIdxHits.singleton(bkt.a[j].y)
+        else
+          positions = Array(UInt64).new(count, 0_u64)
+          pos_i = 0
+          j.upto(k - 1) do |src_i|
+            positions[pos_i] = bkt.a[src_i].y
+            pos_i += 1
+          end
+          positions.sort!
+          h[key] = MmIdxHits.values(positions)
         end
-        positions.sort!
-        h[key] = positions
         j = k
       end
 
@@ -143,7 +148,7 @@ module Minimap2
     # Lookup positions for a minimizer (mirrors mm_idx_get).
     # Returns the array of hit positions, or nil if not found.
     # -------------------------------------------------------------------------
-    def get(minier : UInt64) : Array(UInt64)?
+    def get(minier : UInt64) : MmIdxHits?
       mask = ((1 << @b) - 1).to_u64
       key = minier >> @b
       @b_arr[(minier & mask).to_i32].h[key]?
@@ -268,7 +273,7 @@ module Minimap2
             entries << {(key << @b) << 1 | 1_u64, positions[0]}
           else
             start_p = flat_p.size.to_u64
-            flat_p.concat(positions)
+            positions.each { |pos| flat_p << pos }
             entries << {(key << @b) << 1, (start_p << 32) | positions.size.to_u64}
           end
         end
@@ -318,11 +323,11 @@ module Minimap2
           val = io.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
           key = raw_key >> b + 1 # strip bucket bits and singleton bit
           if (raw_key & 1) == 1
-            bkt.h[key] = [val]
+            bkt.h[key] = MmIdxHits.singleton(val)
           else
             count = (val & 0xffffffff_u64).to_i32
-            start_p = (val >> 32).to_i64
-            bkt.h[key] = flat_p[start_p...(start_p + count)]
+            start_p = (val >> 32).to_i32
+            bkt.h[key] = MmIdxHits.values(flat_p, start_p, count)
           end
         end
       end

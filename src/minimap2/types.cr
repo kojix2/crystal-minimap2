@@ -242,6 +242,53 @@ module Minimap2
     end
   end
 
+  # Reference positions for one minimizer. Most minimizers are singletons, so
+  # storing that case inline avoids one Array allocation per indexed key.
+  struct MmIdxHits
+    getter n : Int32
+
+    @singleton : UInt64
+    @values : Array(UInt64)?
+    @offset : Int32
+
+    def self.singleton(value : UInt64) : MmIdxHits
+      new(1, value, nil, 0)
+    end
+
+    def self.values(values : Array(UInt64), offset : Int32 = 0, n : Int32 = values.size) : MmIdxHits
+      new(n, 0_u64, values, offset)
+    end
+
+    def initialize(@n : Int32, @singleton : UInt64 = 0_u64,
+                   @values : Array(UInt64)? = nil, @offset : Int32 = 0)
+    end
+
+    def size : Int32
+      @n
+    end
+
+    def empty? : Bool
+      @n == 0
+    end
+
+    def [](i : Int) : UInt64
+      raise IndexError.new if i < 0 || i >= @n
+      if values = @values
+        values[@offset + i]
+      else
+        @singleton
+      end
+    end
+
+    def each(& : UInt64 ->) : Nil
+      i = 0
+      while i < @n
+        yield self[i]
+        i += 1
+      end
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Seed match  (mirrors mm_seed_t, internal to mapping)
   # ---------------------------------------------------------------------------
@@ -253,11 +300,16 @@ module Minimap2
     property seg_id : UInt32 # segment id (for paired-end)
     property? is_tandem : Bool
 
-    # reference hits: array of (rid<<32|pos) packed into UInt64
-    property cr : Array(UInt64)
+    # reference hits: (rid<<32|pos) packed into UInt64
+    property cr : MmIdxHits
 
     def initialize(@n, @q_pos, @q_span, @cr, @seg_id = 0_u32,
                    @flt = false, @is_tandem = false)
+    end
+
+    def initialize(@n, @q_pos, @q_span, cr : Array(UInt64), @seg_id = 0_u32,
+                   @flt = false, @is_tandem = false)
+      @cr = MmIdxHits.values(cr)
     end
   end
 
