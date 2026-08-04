@@ -243,7 +243,7 @@ module Minimap2
           n_gapo += 1
         end
       end
-      denom = r.mlen + ep.n_ambi.to_i32 - n_gap + n_gapo
+      denom = r.blen + ep.n_ambi.to_i32 - n_gap + n_gapo
       if denom > 0
         div = 1.0 - r.mlen.to_f / denom
         io.printf("\tde:f:%.4f", div)
@@ -262,6 +262,11 @@ module Minimap2
     # zd tag (split alignment)
     if r.split > 0
       io.print "\tzd:i:"; io.print r.split
+    end
+
+    # rl tag (repetitive length)
+    if rep_len >= 0
+      io.print "\trl:i:"; io.print rep_len
     end
 
     # cg tag (CIGAR)
@@ -286,11 +291,6 @@ module Minimap2
       sb = String::Builder.new
       write_md(sb, tseq, qseq, ep)
       io.print sb.to_s
-    end
-
-    # rl tag (repetitive length)
-    if rep_len >= 0
-      io.print "\trl:i:"; io.print rep_len
     end
 
     io.print "\n"

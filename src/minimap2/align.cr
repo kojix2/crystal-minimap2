@@ -24,6 +24,22 @@ module Minimap2
     end
   end
 
+  private def self.seq_reverse(seq : Array(UInt8)) : Nil
+    i = 0
+    j = seq.size - 1
+    while i < j
+      seq[i], seq[j] = seq[j], seq[i]
+      i += 1
+      j -= 1
+    end
+  end
+
+  private def self.seq_window(seq : Array(UInt8), st : Int32, en : Int32) : Array(UInt8)
+    len = en - st
+    return [] of UInt8 if len <= 0
+    Array(UInt8).new(len) { |i| seq[st + i] }
+  end
+
   # Retrieve a segment of the reference sequence (as 4-bit encoded bases).
   private def self.get_ref_seq(mi : MmIdx, rid : Int32, rs : Int32, re : Int32, is_rev : Bool) : Array(UInt8)
     len = re - rs
@@ -53,6 +69,172 @@ module Minimap2
   # Delegates to ksw2.seq_rev_comp (shared implementation).
   def self.rev_comp(seq : Array(UInt8) | Slice(UInt8)) : Array(UInt8)
     seq_rev_comp(seq.size, seq)
+  end
+
+  private def self.anchor_rid(a : Mm128) : Int32
+    ((a.x << 1) >> 33).to_i32
+  end
+
+  private def self.anchor_rev?(a : Mm128) : Bool
+    (a.x >> 63) != 0
+  end
+
+  private def self.anchor_span(a : Mm128) : Int32
+    ((a.y >> 32) & 0xff).to_i32
+  end
+
+  private def self.adjust_minier(mi : MmIdx, qseq0 : Array(Array(UInt8)), a : Mm128) : {Int32, Int32}
+    if (mi.flag & I_HPC) != 0
+      qseq = qseq0[anchor_rev?(a) ? 1 : 0]
+      q = u64_to_i32(a.y)
+      c = qseq[q]
+      i = q - 1
+      while i > 0 && qseq[i] == c
+        i -= 1
+      end
+      r = u64_to_i32(a.x) + 1 - get_hplen_back(mi, anchor_rid(a), u64_to_i32(a.x))
+      {r, i + 1}
+    else
+      {u64_to_i32(a.x) - (mi.k >> 1), u64_to_i32(a.y) - (mi.k >> 1)}
+    end
+  end
+
+  private def self.get_hplen_back(mi : MmIdx, rid : Int32, x : Int32) : Int32
+    off0 = mi.seq[rid].offset.to_i64
+    off = off0 + x
+    c = mi.seq4_get(off.to_u64)
+    i = off - 1
+    while i >= off0
+      break if mi.seq4_get(i.to_u64) != c
+      i -= 1
+    end
+    (off - i).to_i32
+  end
+
+  private def self.fix_cigar(r : MmReg1, qseq : Array(UInt8) | Slice(UInt8),
+                             tseq : Array(UInt8) | Slice(UInt8)) : {Int32, Int32}
+    ep = r.p
+    return {0, 0} unless ep
+    return {0, 0} if ep.cigar.size <= 1
+
+    toff = 0
+    qoff = 0
+    to_shrink = false
+    k = 0
+    while k < ep.cigar.size
+      op = (ep.cigar[k] & 0xf).to_i32
+      len = (ep.cigar[k] >> 4).to_i32
+      to_shrink = true if len == 0
+      case op
+      when CIGAR_MATCH
+        toff += len
+        qoff += len
+      when CIGAR_INS, CIGAR_DEL
+        if k > 0 && k < ep.cigar.size - 1 &&
+           (ep.cigar[k - 1] & 0xf) == CIGAR_MATCH &&
+           (ep.cigar[k + 1] & 0xf) == CIGAR_MATCH
+          prev_len = (ep.cigar[k - 1] >> 4).to_i32
+          l = 0
+          if op == CIGAR_INS
+            while l < prev_len && qoff - 1 - l >= 0 && qoff + len - 1 - l < qseq.size &&
+                  qseq[qoff - 1 - l] == qseq[qoff + len - 1 - l]
+              l += 1
+            end
+          else
+            while l < prev_len && toff - 1 - l >= 0 && toff + len - 1 - l < tseq.size &&
+                  tseq[toff - 1 - l] == tseq[toff + len - 1 - l]
+              l += 1
+            end
+          end
+          if l > 0
+            ep.cigar[k - 1] = ep.cigar[k - 1] &- (l.to_u32 << 4)
+            ep.cigar[k + 1] = ep.cigar[k + 1] &+ (l.to_u32 << 4)
+            qoff -= l
+            toff -= l
+          end
+          to_shrink = true if l == prev_len
+        end
+        if op == CIGAR_INS
+          qoff += len
+        else
+          toff += len
+        end
+      when CIGAR_N_SKIP
+        toff += len
+      end
+      k += 1
+    end
+
+    k = 0
+    while k < ep.cigar.size - 2
+      op0 = (ep.cigar[k] & 0xf).to_i32
+      op1 = (ep.cigar[k + 1] & 0xf).to_i32
+      if op0 > 0 && op0 + op1 == 3
+        s_ins = 0_u32
+        s_del = 0_u32
+        l = k
+        while l < ep.cigar.size
+          op = (ep.cigar[l] & 0xf).to_i32
+          len = ep.cigar[l] >> 4
+          if op == CIGAR_INS || op == CIGAR_DEL || len == 0
+            s_ins += len if op == CIGAR_INS
+            s_del += len if op == CIGAR_DEL
+          else
+            break
+          end
+          l += 1
+        end
+        if s_ins > 0 && s_del > 0 && l - k > 2
+          ep.cigar[k] = (s_ins << 4) | CIGAR_INS.to_u32
+          ep.cigar[k + 1] = (s_del << 4) | CIGAR_DEL.to_u32
+          m = k + 2
+          while m < l
+            ep.cigar[m] &= 0xf_u32
+            m += 1
+          end
+          to_shrink = true
+        end
+        k = l
+      else
+        k += 1
+      end
+    end
+
+    if to_shrink
+      squeezed = [] of UInt32
+      ep.cigar.each do |entry|
+        next if (entry >> 4) == 0
+        op = entry & 0xf
+        if !squeezed.empty? && (squeezed[-1] & 0xf) == op
+          squeezed[-1] = squeezed[-1] &+ ((entry >> 4) << 4)
+        else
+          squeezed << entry
+        end
+      end
+      ep.cigar = squeezed
+    end
+
+    qshift = 0
+    tshift = 0
+    if !ep.cigar.empty?
+      op = (ep.cigar[0] & 0xf).to_i32
+      len = (ep.cigar[0] >> 4).to_i32
+      if op == CIGAR_INS || op == CIGAR_DEL
+        if op == CIGAR_INS
+          if r.rev?
+            r.qe -= len
+          else
+            r.qs += len
+          end
+          qshift = len
+        else
+          r.rs += len
+          tshift = len
+        end
+        ep.cigar.delete_at(0)
+      end
+    end
+    {qshift, tshift}
   end
 
   # Core alignment between a pair of query and target windows.
@@ -85,10 +267,15 @@ module Minimap2
                                 mat : Array(Int8), q : Int32, e : Int32, is_eqx : Bool) : Nil
     ep = r.p
     return unless ep
+    ep.n_ambi = 0_u32
     r.blen = r.mlen = 0
     r.is_spliced = false
     qoff = 0; toff = 0
     s = 0.0; max_s = 0.0
+
+    qshift, tshift = fix_cigar(r, qseq, tseq)
+    qoff += qshift
+    toff += tshift
 
     ep.cigar.each do |entry|
       op = (entry & 0xf).to_i32
@@ -141,7 +328,7 @@ module Minimap2
           rem = len
           while rem > 0
             l = 0
-            while l < rem && qseq[qoff2 + l] == tseq[toff2 + l]
+            while l < rem && qseq[qshift + qoff2 + l] == tseq[tshift + toff2 + l]
               l += 1
             end
             if l > 0
@@ -149,7 +336,7 @@ module Minimap2
               qoff2 += l; toff2 += l; rem -= l
             end
             l = 0
-            while l < rem && qseq[qoff2 + l] != tseq[toff2 + l]
+            while l < rem && qseq[qshift + qoff2 + l] != tseq[tshift + toff2 + l]
               l += 1
             end
             if l > 0
@@ -172,6 +359,11 @@ module Minimap2
   private def self.align_one_reg(opt : MmMapOpt, mi : MmIdx,
                                  qlen : Int32, qseq_fwd : Array(UInt8),
                                  r : MmReg1, a : Array(Mm128)) : Nil
+    if (opt.flag & (F_SPLICE | F_SR | F_QSTRAND)) == 0 && (mi.flag & I_HPC) == 0 && r.cnt > 0
+      align_one_reg_guided(opt, mi, qlen, qseq_fwd, r, a)
+      return if r.p
+    end
+
     is_rev = r.rev?
     rid = r.rid
     qs = r.qs; qe = r.qe; rs = r.rs; re = r.re
@@ -213,6 +405,160 @@ module Minimap2
 
     is_eqx = (opt.flag & F_EQX) != 0
     update_extra(r, qseq, tseq, mat, opt.q, opt.e, is_eqx)
+  end
+
+  private def self.align_one_reg_guided(opt : MmMapOpt, mi : MmIdx,
+                                        qlen : Int32, qseq_fwd : Array(UInt8),
+                                        r : MmReg1, a : Array(Mm128)) : Nil
+    return if r.cnt <= 0
+
+    qseq_rev = rev_comp(qseq_fwd)
+    qseq0 = [qseq_fwd, qseq_rev]
+    rev = r.rev?
+    qseq_all = qseq0[rev ? 1 : 0]
+    rid = r.rid
+    ctg_len = mi.seq[rid].len.to_i32
+    mat = gen_simple_mat(5, opt.a, opt.b, opt.sc_ambi, opt.transition)
+    bw = (opt.bw * 1.5 + 1.0).to_i32
+    bw_long = (opt.bw_long * 1.5 + 1.0).to_i32
+    bw_long = bw if bw_long < bw
+    ep = MmExtra.new
+    ep.dp_max2 = KSW_NEG_INF
+    r.p = ep
+
+    as1 = r.a_off
+    cnt1 = r.cnt
+    first_anchor = a[as1]
+    last_anchor = a[as1 + cnt1 - 1]
+    rs, qs = adjust_minier(mi, qseq0, first_anchor)
+    re, qe = adjust_minier(mi, qseq0, last_anchor)
+
+    seed_span = anchor_span(first_anchor)
+    rs0 = u64_to_i32(first_anchor.x) + 1 - seed_span
+    qs0 = u64_to_i32(first_anchor.y) + 1 - seed_span
+    rs0 = 0 if rs0 < 0
+    qs0 = 0 if qs0 < 0
+
+    if qs > 0 && rs > 0
+      lq = [qs, opt.max_gap].min
+      qs0 = [qs0, qs - lq].min
+      lr = lq
+      lr += (lr * opt.a - opt.q) // opt.e if lr * opt.a > opt.q && opt.e > 0
+      lr = [lr, opt.max_gap, rs].min
+      rs0 = [rs0, rs - lr].min
+    else
+      rs0 = rs
+      qs0 = qs
+    end
+
+    re0 = u64_to_i32(last_anchor.x) + 1
+    qe0 = u64_to_i32(last_anchor.y) + 1
+    if qe < qlen && re < ctg_len
+      lq = [qlen - qe, opt.max_gap].min
+      qe0 = [qe0, qe + lq].max
+      lr = lq
+      lr += (lr * opt.a - opt.q) // opt.e if lr * opt.a > opt.q && opt.e > 0
+      lr = [lr, opt.max_gap, ctg_len - re].min
+      re0 = [re0, re + lr].max
+    else
+      re0 = re
+      qe0 = qe
+    end
+    qs0 = 0 if qs0 < 0
+    rs0 = 0 if rs0 < 0
+    qe0 = qlen if qe0 > qlen
+    re0 = ctg_len if re0 > ctg_len
+
+    rs1 = rs
+    qs1 = qs
+    if qs > qs0 && rs > rs0
+      qpart = seq_window(qseq_all, qs0, qs)
+      tpart = get_ref_seq(mi, rid, rs0, rs, false)
+      seq_reverse(qpart)
+      seq_reverse(tpart)
+      ez = align_pair(opt, qpart.size, qpart, tpart.size, tpart, mat, bw,
+        opt.end_bonus, r.split_inv? ? opt.zdrop_inv : opt.zdrop,
+        KSW_EZ_EXTZ_ONLY | KSW_EZ_RIGHT | KSW_EZ_REV_CIGAR)
+      if ez.n_cigar > 0
+        append_cigar(ep, ez.cigar)
+        ep.dp_score += ez.max.to_i32
+      end
+      rs1 = rs - (ez.reach_end != 0 ? ez.mqe_t + 1 : ez.max_t + 1)
+      qs1 = qs - (ez.reach_end != 0 ? qs - qs0 : ez.max_q + 1)
+    end
+
+    rs_cur = rs
+    qs_cur = qs
+    re1 = rs
+    qe1 = qs
+    i = 1
+    while i < cnt1
+      ai = a[as1 + i]
+      if ((ai.y & (SEED_IGNORE | SEED_TANDEM)) != 0) && i != cnt1 - 1
+        i += 1
+        next
+      end
+      re_anchor, qe_anchor = adjust_minier(mi, qseq0, ai)
+      re1 = re_anchor
+      qe1 = qe_anchor
+      if i == cnt1 - 1 || (ai.y & SEED_LONG_JOIN) != 0 ||
+         (qe_anchor - qs_cur >= opt.min_ksw_len && re_anchor - rs_cur >= opt.min_ksw_len)
+        bw1 = (ai.y & SEED_LONG_JOIN) != 0 ? [qe_anchor - qs_cur, re_anchor - rs_cur].max : bw_long
+        qpart = seq_window(qseq_all, qs_cur, qe_anchor)
+        tpart = get_ref_seq(mi, rid, rs_cur, re_anchor, false)
+        if qpart.size > 0 && tpart.size > 0
+          ez = align_pair(opt, qpart.size, qpart, tpart.size, tpart, mat, bw1,
+            -1, opt.zdrop, KSW_EZ_APPROX_MAX)
+          append_cigar(ep, ez.cigar) if ez.n_cigar > 0
+          if ez.zdropped?
+            ep.dp_score += ez.max.to_i32
+            re1 = rs_cur + ez.max_t + 1
+            qe1 = qs_cur + ez.max_q + 1
+            break
+          else
+            ep.dp_score += ez.score
+          end
+        end
+        rs_cur = re_anchor
+        qs_cur = qe_anchor
+      end
+      i += 1
+    end
+
+    if qe1 < qe0 && re1 < re0
+      qpart = seq_window(qseq_all, qe1, qe0)
+      tpart = get_ref_seq(mi, rid, re1, re0, false)
+      ez = align_pair(opt, qpart.size, qpart, tpart.size, tpart, mat, bw,
+        opt.end_bonus, opt.zdrop, KSW_EZ_EXTZ_ONLY)
+      if ez.n_cigar > 0
+        append_cigar(ep, ez.cigar)
+        ep.dp_score += ez.max.to_i32
+      end
+      re1 += ez.reach_end != 0 ? ez.mqe_t + 1 : ez.max_t + 1
+      qe1 += ez.reach_end != 0 ? qe0 - qe1 : ez.max_q + 1
+    end
+
+    if ep.cigar.empty?
+      r.p = nil
+      return
+    end
+
+    r.rs = rs1
+    r.re = re1
+    if !rev
+      r.qs = qs1
+      r.qe = qe1
+    else
+      r.qs = qlen - qe1
+      r.qe = qlen - qs1
+    end
+
+    full_qs = rev ? qlen - r.qe : r.qs
+    full_qe = rev ? qlen - r.qs : r.qe
+    return r.p = nil if full_qe <= full_qs || r.re <= r.rs
+    q_aln = seq_window(qseq_all, full_qs, full_qe)
+    t_aln = get_ref_seq(mi, rid, r.rs, r.re, false)
+    update_extra(r, q_aln, t_aln, mat, opt.q, opt.e, (opt.flag & F_EQX) != 0)
   end
 
   # Alignment skeleton: align all regions with CIGAR output.
