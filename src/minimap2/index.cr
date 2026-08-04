@@ -1,16 +1,51 @@
 module Minimap2
   # ---------------------------------------------------------------------------
-  # One bucket of the hash index
+  # One bucket of the minimizer index
   # During construction: a[] collects (hash, position) minimizer pairs.
-  # After worker_post: a[] is cleared and h[] is the lookup table.
+  # After worker_post: a[] is cleared and keys/hits are compact lookup arrays.
   # ---------------------------------------------------------------------------
   private class MmIdxBucket
-    property a : Array(Mm128)               # collecting phase
-    property h : Hash(UInt64, MmIdxHits)    # minimizer_key → sorted positions
+    property a : Array(Mm128)            # collecting phase
+    property keys : Array(UInt64)        # sorted minimizer keys
+    property hits : Array(MmIdxHits)     # reference positions parallel to keys
+    property positions : Array(UInt64)   # flat storage for non-singleton hits
 
     def initialize
       @a = [] of Mm128
-      @h = {} of UInt64 => MmIdxHits
+      @keys = [] of UInt64
+      @hits = [] of MmIdxHits
+      @positions = [] of UInt64
+    end
+
+    def size : Int32
+      @keys.size
+    end
+
+    def each_hit(& : MmIdxHits ->) : Nil
+      @hits.each { |hit| yield hit }
+    end
+
+    def each_entry(& : UInt64, MmIdxHits ->) : Nil
+      i = 0
+      while i < @keys.size
+        yield @keys[i], @hits[i]
+        i += 1
+      end
+    end
+
+    def get(key : UInt64) : MmIdxHits?
+      lo = 0
+      hi = @keys.size
+      while lo < hi
+        mid = (lo + hi) >> 1
+        mid_key = @keys[mid]
+        if mid_key < key
+          lo = mid + 1
+        else
+          hi = mid
+        end
+      end
+      lo < @keys.size && @keys[lo] == key ? @hits[lo] : nil
     end
   end
 
@@ -78,7 +113,7 @@ module Minimap2
     end
 
     # -------------------------------------------------------------------------
-    # Sort and hash one bucket (mirrors worker_post).
+    # Sort and finalize one bucket (mirrors worker_post).
     # -------------------------------------------------------------------------
     private def build_bucket(bi : Int32) : Nil
       bkt = @b_arr[bi]
@@ -87,8 +122,15 @@ module Minimap2
       # Sort by minimizer hash
       bkt.a.sort_by!(&.x)
 
-      # Group by minimizer and build hash table
-      h = bkt.h
+      # Group by minimizer and build compact lookup arrays. The input is sorted
+      # by x, so stripped keys remain sorted within the bucket.
+      keys = bkt.keys
+      hits = bkt.hits
+      positions = bkt.positions
+      tmp_positions = [] of UInt64
+      keys.clear
+      hits.clear
+      positions.clear
       j = 0
       while j < bkt.a.size
         x0 = bkt.a[j].x >> 8
@@ -98,18 +140,19 @@ module Minimap2
           k += 1
         end
         key = x0 >> @b # strip bucket-index bits
+        keys << key
         count = k - j
         if count == 1
-          h[key] = MmIdxHits.singleton(bkt.a[j].y)
+          hits << MmIdxHits.singleton(bkt.a[j].y)
         else
-          positions = Array(UInt64).new(count, 0_u64)
-          pos_i = 0
+          tmp_positions.clear
           j.upto(k - 1) do |src_i|
-            positions[pos_i] = bkt.a[src_i].y
-            pos_i += 1
+            tmp_positions << bkt.a[src_i].y
           end
-          positions.sort!
-          h[key] = MmIdxHits.values(positions)
+          tmp_positions.sort!
+          start_p = positions.size
+          positions.concat(tmp_positions)
+          hits << MmIdxHits.values(positions, start_p, count)
         end
         j = k
       end
@@ -151,7 +194,7 @@ module Minimap2
     def get(minier : UInt64) : MmIdxHits?
       mask = ((1 << @b) - 1).to_u64
       key = minier >> @b
-      @b_arr[(minier & mask).to_i32].h[key]?
+      @b_arr[(minier & mask).to_i32].get(key)
     end
 
     # -------------------------------------------------------------------------
@@ -161,7 +204,7 @@ module Minimap2
       return Int32::MAX if f <= 0.0_f32
       counts = [] of UInt32
       @b_arr.each do |bkt|
-        bkt.h.each_value { |pos| counts << pos.size.to_u32 }
+        bkt.each_hit { |pos| counts << pos.size.to_u32 }
       end
       return Int32::MAX if counts.empty?
       (Minimap2.ks_ksmall_uint32(counts, ((1.0 - f) * counts.size).to_i32) + 1).to_i32
@@ -228,9 +271,9 @@ module Minimap2
     def stat : Nil
       hpc = (@flag & I_HPC) != 0
       total_len = @seq.sum(&.len.to_u64)
-      n_distinct = @b_arr.sum(&.h.size.to_i64)
-      n_singletons = @b_arr.sum(&.h.count { |_, v| v.size == 1 }.to_i64)
-      total_occ = @b_arr.sum { |bkt| bkt.h.sum { |_, v| v.size.to_i64 } }
+      n_distinct = @b_arr.sum(&.size.to_i64)
+      n_singletons = @b_arr.sum { |bkt| bkt.hits.count { |v| v.size == 1 }.to_i64 }
+      total_occ = @b_arr.sum { |bkt| bkt.hits.sum { |v| v.size.to_i64 } }
       t = Minimap2.realtime - Minimap2.realtime0
       STDERR.printf(
         "[M::mm_idx_stat] kmer size: %d; skip: %d; is_hpc: %d; #seq: %d\n",
@@ -264,17 +307,14 @@ module Minimap2
       end
       (1 << @b).times do |i|
         bkt = @b_arr[i]
-        # Rebuild flat p[] and hash for serialisation
-        flat_p = [] of UInt64
+        flat_p = bkt.positions
         entries = [] of {UInt64, UInt64}
-        bkt.h.each do |key, positions|
+        bkt.each_entry do |key, positions|
           if positions.size == 1
             # singleton: key (with singleton bit) → y_value
             entries << {(key << @b) << 1 | 1_u64, positions[0]}
           else
-            start_p = flat_p.size.to_u64
-            positions.each { |pos| flat_p << pos }
-            entries << {(key << @b) << 1, (start_p << 32) | positions.size.to_u64}
+            entries << {(key << @b) << 1, (positions.offset.to_u64 << 32) | positions.size.to_u64}
           end
         end
         io.write_bytes(flat_p.size.to_u32, IO::ByteFormat::LittleEndian)
@@ -316,18 +356,20 @@ module Minimap2
       (1 << b).times do |i|
         bkt = mi.b_arr[i]
         pn = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
-        flat_p = Array(UInt64).new(pn) { io.read_bytes(UInt64, IO::ByteFormat::LittleEndian) }
+        bkt.positions = Array(UInt64).new(pn) { io.read_bytes(UInt64, IO::ByteFormat::LittleEndian) }
         size = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
         size.times do
           raw_key = io.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
           val = io.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
           key = raw_key >> b + 1 # strip bucket bits and singleton bit
           if (raw_key & 1) == 1
-            bkt.h[key] = MmIdxHits.singleton(val)
+            bkt.keys << key
+            bkt.hits << MmIdxHits.singleton(val)
           else
             count = (val & 0xffffffff_u64).to_i32
             start_p = (val >> 32).to_i32
-            bkt.h[key] = MmIdxHits.values(flat_p, start_p, count)
+            bkt.keys << key
+            bkt.hits << MmIdxHits.values(bkt.positions, start_p, count)
           end
         end
       end

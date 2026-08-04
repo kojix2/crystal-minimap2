@@ -246,10 +246,10 @@ module Minimap2
   # storing that case inline avoids one Array allocation per indexed key.
   struct MmIdxHits
     getter n : Int32
+    getter offset : Int32
 
     @singleton : UInt64
     @values : Array(UInt64)?
-    @offset : Int32
 
     def self.singleton(value : UInt64) : MmIdxHits
       new(1, value, nil, 0)
