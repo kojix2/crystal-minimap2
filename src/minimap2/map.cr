@@ -61,8 +61,9 @@ module Minimap2
   # Collect query minimizers across all segments.
   private def self.collect_minimizers(opt : MmMapOpt, mi : MmIdx,
                                       n_segs : Int32, qlens : Array(Int32),
-                                      seqs : Array(String)) : Array(Mm128)
-    mv = [] of Mm128
+                                      seqs : Array(String),
+                                      mv : Array(Mm128) = [] of Mm128) : Array(Mm128)
+    mv.clear
     sum = 0
     n_segs.times do |i|
       n = mv.size
@@ -106,12 +107,19 @@ module Minimap2
   # Collect seed hits and build anchor array (mirrors collect_seed_hits).
   private def self.collect_seed_hits(opt : MmMapOpt, max_occ : Int32, mi : MmIdx,
                                      qname : String?, mv : Array(Mm128), qlen : Int32,
-                                     use_heap : Bool) : {Array(Mm128), Int32, Array(UInt64)}
-    seeds, n_a, rep_len, mini_pos = collect_matches(qlen, max_occ, opt.max_max_occ, opt.occ_dist, mi, mv)
+                                     use_heap : Bool,
+                                     tbuf : MmTbuf? = nil) : {Array(Mm128), Int32, Array(UInt64)}
+    seeds_buf = tbuf.try(&.seeds) || [] of MmSeed
+    selected_buf = tbuf.try(&.selected_seeds) || [] of MmSeed
+    mini_pos_buf = tbuf.try(&.mini_pos) || [] of UInt64
+    seeds, _n_a, rep_len, mini_pos = collect_matches(
+      qlen, max_occ, opt.max_max_occ, opt.occ_dist, mi, mv,
+      seeds_buf, selected_buf, mini_pos_buf
+    )
 
-    # Pre-allocate anchor array to avoid repeated growth via <<.
-    a = Array(Mm128).new(n_a.to_i32, Mm128.max)
-    a_idx = 0
+    # Reuse anchor storage across reads when a thread buffer is supplied.
+    a = tbuf.try(&.anchors) || [] of Mm128
+    a.clear
 
     seeds.each do |seed|
       seed.n.times do |k|
@@ -146,12 +154,10 @@ module Minimap2
         p = Mm128.new(p.x, p.y | SEED_TANDEM) if seed.is_tandem?
         p = Mm128.new(p.x, p.y | SEED_SELF) if is_self
 
-        a[a_idx] = p
-        a_idx += 1
+        a << p
       end
     end
 
-    a.delete_at(a_idx, a.size - a_idx) if a_idx < a.size
     radix_sort_128x(a)
     {a, rep_len, mini_pos}
   end
@@ -175,9 +181,13 @@ module Minimap2
   def self.map_frag_core(mi : MmIdx, n_segs : Int32, qlens : Array(Int32),
                          seqs : Array(String), n_regs_arr : Array(Int32),
                          regs_arr : Array(Array(MmReg1)),
-                         opt : MmMapOpt, qname : String? = nil) : Int32
+                         opt : MmMapOpt, qname : String? = nil,
+                         tbuf : MmTbuf? = nil) : Int32
     qlen_sum = qlens.sum
-    n_segs.times { |i| n_regs_arr[i] = 0; regs_arr[i] = [] of MmReg1 }
+    n_segs.times do |i|
+      n_regs_arr[i] = 0
+      regs_arr[i].clear
+    end
     return 0 if qlen_sum == 0 || n_segs <= 0
 
     # Compute query hash
@@ -186,11 +196,11 @@ module Minimap2
     hash = wang_hash(hash)
 
     # Collect minimizers
-    mv = collect_minimizers(opt, mi, n_segs, qlens, seqs)
-    seed_mz_flt(mv, opt.mid_occ, opt.q_occ_frac) if opt.q_occ_frac > 0.0_f32
+    mv = collect_minimizers(opt, mi, n_segs, qlens, seqs, tbuf.try(&.mv) || [] of Mm128)
+    seed_mz_flt(mv, opt.mid_occ, opt.q_occ_frac, tbuf.try(&.mz_flt)) if opt.q_occ_frac > 0.0_f32
 
     use_heap = (opt.flag & F_HEAP_SORT) != 0
-    a, rep_len, mini_pos = collect_seed_hits(opt, opt.mid_occ, mi, qname, mv, qlen_sum, use_heap)
+    a, rep_len, mini_pos = collect_seed_hits(opt, opt.mid_occ, mi, qname, mv, qlen_sum, use_heap, tbuf)
 
     is_splice = (opt.flag & F_SPLICE) != 0
     is_sr = (opt.flag & F_SR) != 0
@@ -207,7 +217,8 @@ module Minimap2
     chn_pen_gap = opt.chain_gap_scale * 0.01_f32 * mi.k
     chn_pen_skip = opt.chain_skip_scale * 0.01_f32 * mi.k
 
-    u = [] of UInt64
+    u = tbuf.try(&.chain_u) || [] of UInt64
+    u.clear
     a = if (opt.flag & F_RMQ) != 0
           lchain_rmq(opt.max_gap, opt.rmq_inner_dist, opt.bw, opt.max_chain_skip,
             opt.rmq_size_cap, opt.min_cnt, opt.min_chain_score,
@@ -255,7 +266,7 @@ module Minimap2
         rechain = n_chained < n_segs
       end
       if rechain
-        a, rep_len, mini_pos = collect_seed_hits(opt, opt.max_occ, mi, qname, mv, qlen_sum, use_heap)
+        a, rep_len, mini_pos = collect_seed_hits(opt, opt.max_occ, mi, qname, mv, qlen_sum, use_heap, tbuf)
         u.clear
         a = lchain_dp(max_chain_gap_ref, max_chain_gap_qry, opt.bw, opt.max_chain_skip,
           opt.max_chain_iter, opt.min_cnt, opt.min_chain_score,
@@ -316,10 +327,22 @@ module Minimap2
   # Mirrors mm_map().
   def self.map(mi : MmIdx, qlen : Int32, seq : String,
                opt : MmMapOpt, qname : String? = nil, tbuf : MmTbuf? = nil) : Array(MmReg1)
-    n_regs = [0]
-    regs = [[] of MmReg1]
-    rep_len = map_frag_core(mi, 1, [qlen], [seq], n_regs, regs, opt, qname)
-    tbuf.rep_len = rep_len if tbuf
+    tb = tbuf
+    if tb
+      qlens = tb.single_qlens
+      seqs = tb.single_seqs
+      n_regs = tb.single_n_regs
+      regs = tb.single_regs
+      qlens[0] = qlen
+      seqs[0] = seq
+    else
+      qlens = [qlen]
+      seqs = [seq]
+      n_regs = [0]
+      regs = [[] of MmReg1]
+    end
+    rep_len = map_frag_core(mi, 1, qlens, seqs, n_regs, regs, opt, qname, tbuf)
+    tb.rep_len = rep_len if tb
     regs[0].first(n_regs[0])
   end
 
@@ -330,7 +353,7 @@ module Minimap2
     n_segs = seqs.size
     n_regs = Array(Int32).new(n_segs, 0)
     regs = Array(Array(MmReg1)).new(n_segs) { [] of MmReg1 }
-    rep_len = map_frag_core(mi, n_segs, qlens, seqs, n_regs, regs, opt, qname)
+    rep_len = map_frag_core(mi, n_segs, qlens, seqs, n_regs, regs, opt, qname, tbuf)
     tbuf.rep_len = rep_len if tbuf
     Array.new(n_segs) { |i| regs[i].first(n_regs[i]) }
   end

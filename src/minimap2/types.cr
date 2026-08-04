@@ -235,10 +235,32 @@ module Minimap2
   class MmTbuf
     property rep_len : Int32
     property frag_gap : Int32
+    getter mv : Array(Mm128)
+    getter mz_flt : Array(Mm128)
+    getter seeds : Array(MmSeed)
+    getter selected_seeds : Array(MmSeed)
+    getter mini_pos : Array(UInt64)
+    getter anchors : Array(Mm128)
+    getter chain_u : Array(UInt64)
+    getter single_qlens : Array(Int32)
+    getter single_seqs : Array(String)
+    getter single_n_regs : Array(Int32)
+    getter single_regs : Array(Array(MmReg1))
 
     def initialize
       @rep_len = 0
       @frag_gap = 0
+      @mv = [] of Mm128
+      @mz_flt = [] of Mm128
+      @seeds = [] of MmSeed
+      @selected_seeds = [] of MmSeed
+      @mini_pos = [] of UInt64
+      @anchors = [] of Mm128
+      @chain_u = [] of UInt64
+      @single_qlens = [0]
+      @single_seqs = [""]
+      @single_n_regs = [0]
+      @single_regs = [[] of MmReg1]
     end
   end
 

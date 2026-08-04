@@ -5,11 +5,14 @@ module Minimap2
 
   # Filter overly-frequent minimizers from a query minimizer set.
   # Mirrors mm_seed_mz_flt().
-  def self.seed_mz_flt(mv : Array(Mm128), q_occ_max : Int32, q_occ_frac : Float32) : Nil
+  def self.seed_mz_flt(mv : Array(Mm128), q_occ_max : Int32, q_occ_frac : Float32,
+                       scratch : Array(Mm128)? = nil) : Nil
     return if mv.size <= q_occ_max || q_occ_frac <= 0.0_f32 || q_occ_max <= 0
 
     # Build index array sorted by minimizer hash — avoids copying full Mm128.
-    a = Array(Mm128).new(mv.size) { |i| Mm128.new(mv[i].x, i.to_u64) }
+    a = scratch || Array(Mm128).new
+    a.clear
+    mv.each_with_index { |anc, i| a << Mm128.new(anc.x, i.to_u64) }
     radix_sort_128x(a)
 
     # Mark overly frequent minimizers (zero out their x)
@@ -38,8 +41,9 @@ module Minimap2
   # Collect all seed matches between query minimizers and the index.
   # Mirrors mm_seed_collect_all().
   # Returns an Array(MmSeed) with all matches (including high-freq ones).
-  def self.seed_collect_all(mi : MmIdx, mv : Array(Mm128)) : Array(MmSeed)
-    seeds = [] of MmSeed
+  def self.seed_collect_all(mi : MmIdx, mv : Array(Mm128),
+                            seeds : Array(MmSeed) = [] of MmSeed) : Array(MmSeed)
+    seeds.clear
     mv.each_with_index do |anc, i|
       q_pos = anc.y.to_u32
       q_span = (anc.x & 0xff).to_u32
@@ -139,8 +143,11 @@ module Minimap2
   def self.collect_matches(
     qlen : Int32, max_occ : Int32, max_max_occ : Int32, dist : Int32,
     mi : MmIdx, mv : Array(Mm128),
+    seeds : Array(MmSeed) = [] of MmSeed,
+    selected : Array(MmSeed) = [] of MmSeed,
+    mini_pos : Array(UInt64) = [] of UInt64,
   ) : {Array(MmSeed), Int64, Int32, Array(UInt64)}
-    seeds = seed_collect_all(mi, mv)
+    seeds = seed_collect_all(mi, mv, seeds)
 
     if dist > 0 && max_max_occ > max_occ
       seed_select(seeds, qlen, max_occ, max_max_occ, dist)
@@ -156,8 +163,8 @@ module Minimap2
     rep_len = 0_i32
     rep_st = 0_i32
     rep_en = 0_i32
-    mini_pos = [] of UInt64
-    out = [] of MmSeed
+    mini_pos.clear
+    selected.clear
 
     seeds.each do |seed|
       if (@@dbg_flag & DBG_SEED_FREQ) != 0
@@ -175,11 +182,11 @@ module Minimap2
       else
         n_a += seed.n
         mini_pos << (seed.q_span.to_u64 << 32 | (seed.q_pos >> 1).to_u64)
-        out << seed
+        selected << seed
       end
     end
     rep_len += rep_en - rep_st
 
-    {out, n_a, rep_len, mini_pos}
+    {selected, n_a, rep_len, mini_pos}
   end
 end
