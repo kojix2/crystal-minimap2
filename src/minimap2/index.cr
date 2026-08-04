@@ -98,7 +98,13 @@ module Minimap2
           k += 1
         end
         key = x0 >> @b # strip bucket-index bits
-        positions = bkt.a[j...k].map(&.y).sort!
+        positions = Array(UInt64).new(k - j, 0_u64)
+        pos_i = 0
+        j.upto(k - 1) do |src_i|
+          positions[pos_i] = bkt.a[src_i].y
+          pos_i += 1
+        end
+        positions.sort!
         h[key] = positions
         j = k
       end

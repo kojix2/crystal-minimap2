@@ -249,6 +249,7 @@ module Minimap2
       puts parser
       return print_help ? 0 : 1
     end
+    n_threads = 1 if n_threads < 1
 
     # ── Positional arguments ──────────────────────────────────────────────────
     target_fn = remaining.shift
@@ -368,30 +369,7 @@ module Minimap2
           end
         else
           # Independent mapping of each sequence
-          n_pairs = seqs.size * indices.size
-          results = Array(Array(MmReg1)?).new(n_pairs, nil)
-          rep_lens = Array(Int32).new(n_pairs, 0)
-          pending = Atomic(Int32).new(n_pairs)
-          done_ch = Channel(Nil).new(1)
-
-          seqs.each_with_index do |bseq, seq_i|
-            indices.each_with_index do |midx, mi_i|
-              pair_idx = seq_i * indices.size + mi_i
-              map_ctx.spawn do
-                begin
-                  tbuf = MmTbuf.new
-                  results[pair_idx] = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name, tbuf)
-                  rep_lens[pair_idx] = tbuf.rep_len
-                rescue ex
-                  STDERR.puts "[WARNING] mapping failed for '#{bseq.name}': #{ex.message}"
-                  results[pair_idx] = [] of MmReg1
-                end
-                done_ch.send(nil) if pending.sub(1, :sequentially_consistent) == 1
-              end
-            end
-          end
-
-          done_ch.receive
+          results, rep_lens = map_batch(map_ctx, indices, seqs, mo, n_threads)
 
           seqs.each_with_index do |bseq, seq_i|
             indices.each_with_index do |midx, mi_i|
@@ -411,6 +389,63 @@ module Minimap2
 
     out_io.close unless out_file.nil?
     0
+  end
+
+  # Map a mini-batch while keeping output ordering deterministic.  The parallel
+  # path uses a fixed worker pool instead of spawning one fiber per read/index
+  # pair, which keeps scheduling overhead bounded for large batches.
+  private def self.map_batch(map_ctx : Fiber::ExecutionContext::Parallel,
+                             indices : Array(MmIdx), seqs : Array(BSeq1),
+                             mo : MmMapOpt, n_threads : Int32) : {Array(Array(MmReg1)?), Array(Int32)}
+    n_pairs = seqs.size * indices.size
+    results = Array(Array(MmReg1)?).new(n_pairs, nil)
+    rep_lens = Array(Int32).new(n_pairs, 0)
+    return {results, rep_lens} if n_pairs == 0
+
+    if n_threads <= 1 || n_pairs == 1
+      n_pairs.times do |pair_idx|
+        map_one_pair(indices, seqs, mo, pair_idx, results, rep_lens)
+      end
+      return {results, rep_lens}
+    end
+
+    worker_count = {n_threads, n_pairs}.min
+    next_pair = Atomic(Int32).new(0)
+    pending = Atomic(Int32).new(worker_count)
+    done_ch = Channel(Nil).new(1)
+
+    worker_count.times do
+      map_ctx.spawn do
+        loop do
+          pair_idx = next_pair.add(1, :relaxed)
+          break if pair_idx >= n_pairs
+          map_one_pair(indices, seqs, mo, pair_idx, results, rep_lens)
+        end
+        done_ch.send(nil) if pending.sub(1, :acquire_release) == 1
+      end
+    end
+
+    done_ch.receive
+    {results, rep_lens}
+  end
+
+  private def self.map_one_pair(indices : Array(MmIdx), seqs : Array(BSeq1),
+                                mo : MmMapOpt, pair_idx : Int32,
+                                results : Array(Array(MmReg1)?),
+                                rep_lens : Array(Int32)) : Nil
+    mi_i = pair_idx % indices.size
+    seq_i = pair_idx // indices.size
+    midx = indices[mi_i]
+    bseq = seqs[seq_i]
+
+    begin
+      tbuf = MmTbuf.new
+      results[pair_idx] = Minimap2.map(midx, bseq.l_seq, bseq.seq, mo, bseq.name, tbuf)
+      rep_lens[pair_idx] = tbuf.rep_len
+    rescue ex
+      STDERR.puts "[WARNING] mapping failed for '#{bseq.name}': #{ex.message}"
+      results[pair_idx] = [] of MmReg1
+    end
   end
 
   # ---------------------------------------------------------------------------
