@@ -4,23 +4,31 @@ module Paftools
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   def self.cmd_gff2bed(args : Array(String)) : Int32
-    is_short = false; print_junc = false; output_gene = false; ens_canon_only = false
+    is_short = false; keep_gff = false; print_junc = false; output_gene = false; ens_canon_only = false
     fn_ucsc : String? = nil
     rest = [] of String; i = 0
     while i < args.size
       case args[i]
       when "-s"          ; is_short = true
+      when "-g"          ; keep_gff = true
       when "-j"          ; print_junc = true
       when "-G"          ; output_gene = true
       when "-e"          ; ens_canon_only = true
       when "-u"          ; i += 1; fn_ucsc = args[i]
-      when "-h", "--help"; STDERR.puts "Usage: paftools gff2bed [-sjGe] [-u fai] <in.gff>"; return 0
+      when "-h", "--help"; STDERR.puts "Usage: paftools gff2bed [-sgjGe] [-u fai] <in.gff>"; return 0
       else                 rest << args[i]
       end
       i += 1
     end
     if rest.empty?
-      STDERR.puts "Usage: paftools gff2bed [-sjGe] [-u fai] <in.gff>"; return 1
+      STDERR.puts "Usage: paftools gff2bed [options] <in.gff>"
+      STDERR.puts "Options:"
+      STDERR.puts "  -j       output junction BED"
+      STDERR.puts "  -s       print names in the short form"
+      STDERR.puts "  -u FILE  hg38.fa.fai for chr name conversion"
+      STDERR.puts "  -e       only show transcript tagged with 'Ensembl_canonical'"
+      STDERR.puts "  -g       output GFF (used with -u)"
+      return 1
     end
 
     ens2ucsc = Hash(String, String).new
@@ -72,12 +80,12 @@ module Paftools
     open_in(rest[0]) do |io|
       io.each_line(chomp: true) do |line|
         t = line.split('\t')
-        next if t.size < 9 || t[0].starts_with?('#')
 
-        if fn_ucsc
-          t[0] = ens2ucsc[t[0]]? || t[0]
+        if keep_gff
+          t[0] = ens2ucsc[t[0]]? || t[0] if t[0][0]? != '#'
           puts t.join('\t'); next
         end
+        next if t.size < 9 || t[0].starts_with?('#')
 
         if output_gene
           next if t[2] != "gene"
@@ -141,13 +149,13 @@ module Paftools
     while i < args.size
       case args[i]
       when "-f"          ; i += 1; feat = args[i]
-      when "-h", "--help"; STDERR.puts "Usage: paftools gff2junc [-f feature] <in.gff3>"; return 0
+      when "-h", "--help"; puts "Usage: paftools gff2junc [-f feature] <in.gff3>"; return 0
       else                 rest << args[i]
       end
       i += 1
     end
     if rest.empty?
-      STDERR.puts "Usage: paftools gff2junc [-f feature] <in.gff3>"; return 1
+      puts "Usage: paftools gff2junc [-f feature] <in.gff3>"; return 0
     end
 
     process = ->(a : Array(Array(String))) {
@@ -208,7 +216,7 @@ module Paftools
       return if a.empty?
       n_pri = a.count { |row| row[8] == "0" }
       a.each { |row| row[8] = "1" } if n_pri > 1
-      STDERR.puts "Warning: #{a[0][3]} has no primary alignment" if n_pri == 0
+      STDERR.puts "Warning: #{a[0][3]} doesn't have a primary alignment" if n_pri == 0
       a.each do |row|
         next if !keep_multi && row[8] == "2"
         row[8] = colors[row[8].to_i]
@@ -245,14 +253,14 @@ module Paftools
           te_val : String? = nil
           a1 = [t[2], (t[3].to_i - 1).to_s, te_val || "?", t[0], "1000", (flag & 16) != 0 ? "-" : "+"]
         else
-          next
+          raise "unrecognized input format"
         end
 
         if !buf.empty? && buf[0][3] != t[0]
           print_lines.call(buf); buf.clear
         end
 
-        next unless cigar
+        raise "missing CIGAR" unless cigar
         x0 = 0; x = 0; bs = [] of Int32; bl = [] of Int32
         cigar.scan(/(\d+)([MIDNSHP=X])/) do |mat|
           l = mat[1].to_i; op = mat[2][0]

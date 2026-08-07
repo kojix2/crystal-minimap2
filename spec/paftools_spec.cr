@@ -35,10 +35,13 @@ describe "paftools binary" do
 
   # ── stat ─────────────────────────────────────────────────────────────────
   describe "stat" do
-    # Fixture: 2 primary reads + 1 secondary (s2:i: tag)
+    # Fixture: 2 primary reads + 1 secondary alignment.
+    # minimap2 only tags the PRIMARY record with s2:i: (2nd-best chaining
+    # score, format.c: `if (r->parent == r->id) ... s2:i:`), so paftools.js
+    # treats the *absence* of s2:i: as the marker of a secondary alignment.
     # read1: 1000 bp, CIGAR 500M10D490M, NM=10  → 0 substitutions, 1 deletion in [0,50)
     # read2:  800 bp, CIGAR 800M,         NM=5  → 5 substitutions
-    # read1 secondary: has s2:i: → counted in n_2nd, skipped from stats
+    # read1 secondary (tp:A:S, no s2:i:) → counted in n_2nd, skipped from stats
 
     it "counts sequences, primary and secondary alignments" do
       code, out, _ = run_paftools("stat", "#{FIXTURES}/stat.paf")
@@ -225,6 +228,225 @@ describe "paftools binary" do
       fields[2].should eq("1300")
       fields[3].should eq("query1_200_400")
       fields[5].should eq("+")
+    end
+  end
+
+  # ── misjoin ──────────────────────────────────────────────────────────────
+  describe "misjoin" do
+    # q1: chrA→chrB→chrA (inter-chromosomal 'J' x2); q3: +/-/+ bracketed
+    # inversion on chrD ('M' x3). Every row carries trailing tp:A:P/cm:i:100
+    # tags so the -p full-row test below actually exercises the truncation
+    # bug fix. Verified byte-for-byte against k8 paftools.js.
+
+    it "detects inter-chromosomal misjoins and bracketed inversions" do
+      code, out, _ = run_paftools("misjoin", "-e", "#{FIXTURES}/misjoin.paf")
+      code.should eq(0)
+      out.should match(/^J\tq1/m)
+      out.should match(/^M\tq3/m)
+      out.should match(/# inter-chromosomal misjoins: 2,0/)
+      out.should match(/# candidate inversions in the middle: 1,0/)
+    end
+
+    it "truncates -e error-report rows to the first 12 PAF columns (tags dropped)" do
+      code, out, _ = run_paftools("misjoin", "-e", "#{FIXTURES}/misjoin.paf")
+      code.should eq(0)
+      j_line = out.lines.find { |l| l.starts_with?("J\tq1") }.not_nil!
+      j_line.strip.split('\t').size.should eq(13) # "J" label + 12 PAF columns, no tags
+      j_line.should_not match(/tp:A:P/)
+    end
+
+    it "prints full untruncated PAF rows (incl. trailing tags) with -p (bug fix)" do
+      # Regression test for a real bug found in this port: the -p listing
+      # must print the FULL row (JS: a[i].join("\t")), including trailing
+      # SAM/PAF tags like tp:A:P and cm:i:, not truncate to the first 12 PAF
+      # columns the way the -e error-report lines correctly do.
+      code, out, _ = run_paftools("misjoin", "-p", "#{FIXTURES}/misjoin.paf")
+      code.should eq(0)
+      q1_line = out.lines.find { |l| l.starts_with?("q1\t5000000\t0\t1500000") }.not_nil!
+      q1_line.strip.split('\t').size.should eq(14) # 12 PAF columns + 2 trailing tags
+      q1_line.should match(/tp:A:P\tcm:i:100$/)
+    end
+  end
+
+  # ── mapeval ──────────────────────────────────────────────────────────────
+  describe "mapeval" do
+    # 4 simulated reads (names encode ground truth), 3 distinct mapQ values
+
+    it "buckets accuracy by mapping quality" do
+      code, out, _ = run_paftools("mapeval", "#{FIXTURES}/mapeval.paf")
+      code.should eq(0)
+      out.should match(/^Q\t60\t3\t0\t0\.000000000\t3$/m)
+      out.should match(/^Q\t0\t1\t1\t0\.250000000\t4$/m)
+    end
+  end
+
+  # ── pafcmp ───────────────────────────────────────────────────────────────
+  describe "pafcmp" do
+    # base has r1(match),r2(will move),r3(missing from test); test has
+    # r1(match),r2(moved→wrong),r4(new, not in base)
+
+    it "reports wrong/missing base alignments" do
+      code, out, _ = run_paftools("pafcmp", "#{FIXTURES}/pafcmp_base.paf", "#{FIXTURES}/pafcmp_test.paf")
+      code.should eq(0)
+      out.should match(/^W\tr2\t/m)
+      out.should match(/^M\tr3\t/m)
+      out.should match(/1 wrong test alignment/)
+      out.should match(/1 base alignments missing/)
+    end
+
+    it "counts additional test alignments correctly (bug fix)" do
+      # JS increments opt.n_out_high/n_out_low, but those fields only exist
+      # on `eval`, not `opt` — a typo that makes the printed count always 0.
+      # We track real counters instead, so r4 (new, mapQ>=10) must count as 1.
+      _, out, _ = run_paftools("pafcmp", "#{FIXTURES}/pafcmp_base.paf", "#{FIXTURES}/pafcmp_test.paf")
+      out.should match(/1 additional test alignments with mapQ>=10/)
+    end
+  end
+
+  # ── ov-eval ──────────────────────────────────────────────────────────────
+  describe "ov-eval" do
+    # 3 to-ref alignments (r1,r3,r4 mutually overlapping); overlapper only
+    # reports r1-r3, so r1-r4 and r3-r4 are inferred-but-missed
+
+    it "reports overlap sensitivity" do
+      code, out, _ = run_paftools("ov-eval", "-l", "400", "#{FIXTURES}/ov_toref.paf", "#{FIXTURES}/ov_ovlp.paf")
+      code.should eq(0)
+      out.should match(/^2 overlaps inferred from the reference mapping$/m)
+      out.should match(/^1 missed by the read overlapper$/m)
+      out.should match(/^50\.00% sensitivity$/m)
+    end
+  end
+
+  # ── junceval / exoneval ──────────────────────────────────────────────────
+  describe "junceval" do
+    # 3-exon transcript T1 on chr1+; SAM read spans all 3 exons via 2 introns
+    # that exactly match the annotated junctions
+
+    it "reports 100% correct introns for an exact match" do
+      code, out, _ = run_paftools("junceval", "#{FIXTURES}/junceval.gtf", "#{FIXTURES}/junceval.sam")
+      code.should eq(0)
+      out.should match(/# predicted introns: 2/)
+      out.should match(/# correct introns: 2 \(100\.00%\)/)
+    end
+  end
+
+  describe "exoneval" do
+    it "reports 100% correct exons for an exact match" do
+      code, out, _ = run_paftools("exoneval", "#{FIXTURES}/junceval.gtf", "#{FIXTURES}/junceval.sam")
+      code.should eq(0)
+      out.should match(/# predicted exons: 3/)
+      out.should match(/# correct exons: 3 \(100\.00%\)/)
+    end
+  end
+
+  # ── vcfstat ──────────────────────────────────────────────────────────────
+  describe "vcfstat" do
+    it "tabulates substitutions and indels" do
+      code, out, _ = run_paftools("vcfstat", "#{FIXTURES}/vcfstat1.vcf")
+      code.should eq(0)
+      out.should match(/# substitutions: 3/)
+      out.should match(/ts\/tv: 2\.000/)
+      out.should match(/# insertions: 1/)
+      out.should match(/# deletions: 1/)
+    end
+
+    it "treats a literal ALT ending in '>' as a real substitution, not a symbolic allele (bug fix)" do
+      # JS's check is `a[0]=='<' || a[1]=='>'` — almost certainly meant to
+      # test whether the ALT starts with '<' AND ends with '>' (a genuine
+      # symbolic allele like <DEL>). As written, any two-char ALT whose
+      # SECOND character happens to be '>' is also (wrongly) skipped. We use
+      # a regex anchored on both ends instead, so "T>" is counted normally.
+      code, out, _ = run_paftools("vcfstat", "#{FIXTURES}/vcfstat2.vcf")
+      code.should eq(0)
+      out.should match(/# substitutions: 2/)
+    end
+  end
+
+  # ── vcfsel ───────────────────────────────────────────────────────────────
+  describe "vcfsel" do
+    it "filters VCF records by allele length" do
+      code, out, _ = run_paftools("vcfsel", "-L", "20", "#{FIXTURES}/vcfsel.vcf")
+      code.should eq(0)
+      lines = out.strip.split('\n')
+      lines.size.should eq(3) # header + 2 short records; the 50bp INS is excluded
+    end
+  end
+
+  # ── sveval ───────────────────────────────────────────────────────────────
+  describe "sveval" do
+    it "scores SV calls against a truth VCF" do
+      code, out, _ = run_paftools("sveval", "#{FIXTURES}/sveval_base.vcf", "#{FIXTURES}/sveval_call.vcf")
+      code.should eq(0)
+      out.should match(/^SN\t2\t1\t0\.500000$/m)
+      out.should match(/^PC\t2\t1\t0\.500000$/m)
+      out.should match(/^F1\t0\.500000$/m)
+    end
+  end
+
+  # ── paf2gff ──────────────────────────────────────────────────────────────
+  describe "paf2gff" do
+    # spliced PAF: 500M100N500M100N500M → 3-exon transcript, identity=0.8529
+
+    it "converts a spliced PAF alignment to GFF3" do
+      code, out, _ = run_paftools("paf2gff", "#{FIXTURES}/paf2gff.paf")
+      code.should eq(0)
+      lines = out.strip.split('\n')
+      lines[0].should match(/\ttranscript\t1001\t2700\t/)
+      lines[0].should match(/identity=0\.8529/)
+      lines.count { |l| l.includes?("\tCDS\t") }.should eq(3)
+    end
+  end
+
+  # ── mason2fq ─────────────────────────────────────────────────────────────
+  describe "mason2fq" do
+    # simulated.1 forward @ chr1:1000 (1-based) → FASTQ header chr1!999!1099!+
+    # simulated.2 reverse (flag 16) @ chr1:2000 → header chr1!1999!2099!- with
+    # revcomp'd sequence and reversed quality string
+
+    it "converts a mason2 SAM to FASTQ with correct revcomp on reverse reads" do
+      code, out, _ = run_paftools("mason2fq", "#{FIXTURES}/mason2fq.sam")
+      code.should eq(0)
+      lines = out.strip.split('\n')
+      lines[0].should eq("@1!chr1!999!1099!+ 0:0:0")
+      lines[4].should eq("@2!chr1!1999!2099!- 0:0:0")
+      lines[5].should eq("GTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT")
+    end
+  end
+
+  # ── sim2bed ──────────────────────────────────────────────────────────────
+  describe "sim2bed" do
+    it "converts mason paired-end and long-read simulated names to BED" do
+      code, out, _ = run_paftools("sim2bed", "#{FIXTURES}/sim2bed.txt")
+      code.should eq(0)
+      lines = out.strip.split('\n')
+      lines[0].should eq("chr1\t1000\t1100\t@read1!chr1!1000_2000!1100_2100!F1/1\t0\tF")
+      lines[1].should eq("chr2\t5000\t5500\t@read2!chr2!5000!5500!+\t0\t+")
+    end
+  end
+
+  # ── pbsim2fq ─────────────────────────────────────────────────────────────
+  describe "pbsim2fq" do
+    it "converts a pbsim MAF alignment to FASTA with correct revcomp" do
+      code, out, _ = run_paftools("pbsim2fq", "#{FIXTURES}/pbsim_ref.fa.fai", "#{FIXTURES}/pbsim_rc.maf")
+      code.should eq(0)
+      lines = out.strip.split('\n')
+      lines[0].should eq(">S1_1!chr1!1000!1008!-")
+      lines[1].should eq("CGGGTTTT") # revcomp of AAAACCCG
+    end
+  end
+
+  # ── badread2fa ───────────────────────────────────────────────────────────
+  describe "badread2fa" do
+    # read1 (+strand, forward), read2 (-strand → coord-flipped), read3
+    # (chimera → discarded)
+
+    it "converts Badread FASTQ headers to FASTA, discarding chimeras" do
+      code, out, err = run_paftools("badread2fa", "#{FIXTURES}/badread_ref.fai", "#{FIXTURES}/badread.fastq")
+      code.should eq(0)
+      lines = out.strip.split('\n')
+      lines[0].should eq(">S1!chr1!1000!1500!+\tri:f:98.5")
+      lines[2].should eq(">S2!chr1!97500!98000!-\tri:f:97.2")
+      err.should match(/WARNING: discarded 1 reads/)
     end
   end
 end

@@ -3,13 +3,37 @@ module Paftools
   # bedcov — compute bases in BED regions covered by target BED
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+  private def self.read_bed_ivs(fn : String, to_merge : Bool) : {Hash(String, Array({Int32, Int32})), Hash(String, Array(Int32))}
+    ivs_h = Hash(String, Array({Int32, Int32})).new
+    File.open(fn) do |file|
+      file.each_line(chomp: true) do |line|
+        t = line.split('\t'); next if t.size < 3
+        chr = t[0]; bst = t[1].to_i; ben = t[2].to_i
+        ivs_h[chr] ||= [] of {Int32, Int32}
+        if t.size >= 12 && t[9] =~ /^\d+/
+          n = t[9].to_i; sz = t[10].split(','); sts = t[11].split(',')
+          n.times { |j| ivs_h[chr] << {bst + sts[j].to_i, bst + sts[j].to_i + sz[j].to_i} }
+        else
+          ivs_h[chr] << {bst, ben}
+        end
+      end
+    end
+    idx_h = Hash(String, Array(Int32)).new
+    ivs_h.each do |chr, ivs|
+      intv_sort(ivs); intv_merge(ivs) if to_merge
+      idx_h[chr] = intv_build(ivs)
+    end
+    {ivs_h, idx_h}
+  end
+
   def self.cmd_bedcov(args : Array(String)) : Int32
-    print_len = false; to_merge = true
+    print_len = false; to_merge = true; fn_excl : String? = nil
     rest = [] of String; i = 0
     while i < args.size
       case args[i]
       when "-p"; print_len = true
       when "-d"; to_merge = false
+      when "-e"; i += 1; fn_excl = args[i]
       when "-h", "--help"
         STDERR.puts "Usage: paftools bedcov [-pd] <regions.bed> <target.bed>"; return 0
       else rest << args[i]
@@ -20,26 +44,12 @@ module Paftools
       STDERR.puts "Usage: paftools bedcov [-pd] <regions.bed> <target.bed>"; return 1
     end
 
+    # Optional exclusion BED (always merged, never deduped) — regions overlapping
+    # this file are excluded from the target-file feature segments.
+    excl_ivs, excl_idx = fn_excl ? read_bed_ivs(fn_excl, true) : {Hash(String, Array({Int32, Int32})).new, Hash(String, Array(Int32)).new}
+
     # Read regions BED and build interval index per chromosome
-    reg_ivs = Hash(String, Array({Int32, Int32})).new
-    reg_idx = Hash(String, Array(Int32)).new
-    File.open(rest[0]) do |file|
-      file.each_line(chomp: true) do |line|
-        t = line.split('\t'); next if t.size < 3
-        chr = t[0]; bst = t[1].to_i; ben = t[2].to_i
-        reg_ivs[chr] ||= [] of {Int32, Int32}
-        if t.size >= 12 && t[9] =~ /^\d+/
-          n = t[9].to_i; sz = t[10].split(','); sts = t[11].split(',')
-          n.times { |j| reg_ivs[chr] << {bst + sts[j].to_i, bst + sts[j].to_i + sz[j].to_i} }
-        else
-          reg_ivs[chr] << {bst, ben}
-        end
-      end
-    end
-    reg_ivs.each do |chr, ivs|
-      intv_sort(ivs); intv_merge(ivs) if to_merge
-      reg_idx[chr] = intv_build(ivs)
-    end
+    reg_ivs, reg_idx = read_bed_ivs(rest[0], to_merge)
 
     tot_len = 0_i64; hit_len = 0_i64
 
@@ -53,6 +63,11 @@ module Paftools
           n.times { |j| segs << {bst + sts[j].to_i, bst + sts[j].to_i + sz[j].to_i} }
         else
           segs << {bst, ben}
+        end
+
+        if fn_excl && excl_ivs.has_key?(chr)
+          eivs = excl_ivs[chr]; eidx = excl_idx[chr]
+          segs = segs.reject { |seg| !intv_ovlp(eivs, eidx, seg[0], seg[1]).empty? }
         end
 
         feat_len = segs.sum { |seg| seg[1] - seg[0] }.to_i64

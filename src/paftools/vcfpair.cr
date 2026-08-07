@@ -18,6 +18,10 @@ module Paftools
       end
       i += 1
     end
+    if is_male && (hgver.nil? || !par.has_key?(hgver))
+      STDERR.puts "for a male, -g must be specified to properly handle PARs on chrX"
+      return 1
+    end
     if rest.empty?
       STDERR.puts "Usage: paftools vcfpair [-m] [-s sample] [-g 37] <in.pair.vcf>"; return 1
     end
@@ -51,7 +55,7 @@ module Paftools
           s = m[3].split(',')
           the_ad = (ad ||= Array.new(s.size, 0))
           s.each_with_index { |v, j| the_ad[j] += v.to_i }
-          if m[1] == '.'
+          if m[1] == "."
             filters << "GAP#{hap_i + 1}"; ht[hap_i] = "."
           elsif m[1] != m[2]
             filters << "HET#{hap_i + 1}"; ht[hap_i] = "."
@@ -60,6 +64,7 @@ module Paftools
           end
         end
         t.delete_at(t.size - 1)
+        merged = ht.map { |hap_val| hap_val || "." }.join("|") + ":" + (ad || [] of Int32).join(",")
         hap = 0; st2 = t[1].to_i; en2 = st2 + t[3].size
         if is_male
           if t[0] =~ /^(chr)?X/
@@ -75,7 +80,7 @@ module Paftools
           filters.clear if (hap == 2 && filters[0] == "GAP1") || (hap == 1 && filters[0] == "GAP2")
         end
         t[5] = "30"; t[6] = filters.empty? ? "." : filters.join(";")
-        t << ht.map { |hap_val| hap_val || "." }.join("|") + ":" + (ad || [] of Int32).join(",")
+        t[9] = merged
         puts t.join('\t')
       end
     end

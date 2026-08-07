@@ -1,0 +1,12 @@
+@read1 chr1,+strand,1000-1500 length=500 error-free_length=500 read_identity=98.5%
+AAAACCCGAAAACCCGAAAACCCG
++
+IIIIIIIIIIIIIIIIIIIIIIII
+@read2 chr1,-strand,2000-2500 length=500 error-free_length=500 read_identity=97.2%
+AAAACCCGAAAACCCGAAAACCCG
++
+IIIIIIIIIIIIIIIIIIIIIIII
+@read3 chr1,+strand,3000-3500 chimera junk read_identity=90.0%
+AAAACCCGAAAACCCGAAAACCCG
++
+IIIIIIIIIIIIIIIIIIIIIIII

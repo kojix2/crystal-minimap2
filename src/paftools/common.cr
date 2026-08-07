@@ -1,4 +1,17 @@
 module Paftools
+  # ── Numeric formatting ──────────────────────────────────────────────────
+  # Mirrors JS Number#toFixed(2), including its NaN/Infinity string output
+  # (Crystal's "%.2f" has no such special-casing).
+  def self.js_fixed2(v : Float64) : String
+    js_fixed(v, 2)
+  end
+
+  def self.js_fixed(v : Float64, digits : Int32) : String
+    return "NaN" if v.nan?
+    return (v > 0 ? "Infinity" : "-Infinity") if v.infinite?
+    "%.#{digits}f" % v
+  end
+
   # ── I/O ──────────────────────────────────────────────────────────────────
 
   def self.open_in(fn : String, &)
@@ -78,6 +91,52 @@ module Paftools
   def self.intv_ovlp(a : Array({Int32, Int32}), idx : Array(Int32),
                      st : Int32, en : Int32) : Array({Int32, Int32})
     intv_ovlp_idx(a, idx, st, en).map { |i| a[i] }
+  end
+
+  # ── Numeric argument parsing (mirrors JS paf_parseNum) ────────────────────
+  # Parses sizes like "1m", "500k", "2.5g" used by -l/-g/-f/-i/-x/-w options.
+
+  def self.parse_num(s : String) : Int32
+    m = /^(\d*\.?\d*)([mMgGkK]?)/.match(s)
+    return 0 unless m
+    x = m[1].to_f
+    case m[2]
+    when "k", "K" then x *= 1_000
+    when "m", "M" then x *= 1_000_000
+    when "g", "G" then x *= 1_000_000_000
+    end
+    (x + 0.499).floor.to_i32
+  end
+
+  # ── VCF ALT-allele length helper (mirrors JS _paf_get_alen) ───────────────
+  # Returns {alen, min_abs_diff, max_abs_diff} for a VCF record's ALT alleles,
+  # preferring INFO/SVLEN when present, else falling back to the length delta
+  # between REF and each non-symbolic ALT allele.
+  def self.paf_get_alen(t : Array(String)) : {Int32?, Int32, Int32}
+    svlen : Int32? = nil
+    if m = /(^|;)SVLEN=(-?\d+)/.match(t[7])
+      svlen = m[2].to_i
+    end
+    s = t[4].split(',')
+    min_abs_diff = 1 << 30
+    max_abs_diff = 0
+    alen : Int32? = nil
+    if (sv = svlen) && sv != 0
+      alen = sv
+      min_abs_diff = max_abs_diff = sv > 0 ? sv : -sv
+    end
+    rlen = t[3].size
+    s.each do |allele|
+      next if /^<\S+>$/.matches?(allele)
+      diff = allele.size - rlen
+      abs_diff = diff > 0 ? diff : -diff
+      min_abs_diff = [min_abs_diff, abs_diff].min
+      if max_abs_diff < abs_diff
+        max_abs_diff = abs_diff
+        alen = diff
+      end
+    end
+    {alen, min_abs_diff, max_abs_diff}
   end
 
   # ── Merge overlapping regions and return covered length ───────────────────

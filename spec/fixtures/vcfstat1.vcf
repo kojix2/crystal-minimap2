@@ -1,0 +1,8 @@
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	100	.	A	G	.	.	.
+chr1	200	.	C	T	.	.	.
+chr1	300	.	G	T	.	.	.
+chr1	400	.	AT	A	.	.	.
+chr1	500	.	A	ATG	.	.	.
+chr1	600	.	A	<DEL>	.	.	.
+chr1	700	.	A	<INS:ME>	.	.	.

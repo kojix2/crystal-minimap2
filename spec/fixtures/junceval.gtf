@@ -1,0 +1,6 @@
+chr1	test	exon	1001	1500	.	+	.	gene_id "G1"; transcript_id "T1";
+chr1	test	exon	2001	2500	.	+	.	gene_id "G1"; transcript_id "T1";
+chr1	test	exon	3001	3500	.	+	.	gene_id "G1"; transcript_id "T1";
+chr1	test	CDS	1100	1500	.	+	.	gene_id "G1"; transcript_id "T1";
+chr1	test	CDS	2001	2500	.	+	.	gene_id "G1"; transcript_id "T1";
+chr1	test	CDS	3001	3400	.	+	.	gene_id "G1"; transcript_id "T1";

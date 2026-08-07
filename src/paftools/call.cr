@@ -13,6 +13,7 @@ module Paftools
       when "-l"; i += 1; min_cov_len = args[i].to_i
       when "-L"; i += 1; min_var_len = args[i].to_i
       when "-g"; i += 1; gap_thres = args[i].to_i
+      when "-G"; i += 1 # upstream getopt spec omits 'G' -- flag+arg are silently swallowed with no effect
       when "-q"; i += 1; min_mapq = args[i].to_i
       when "-f"; i += 1; fa_fn = args[i]
       when "-s"; i += 1; sample_name = args[i]
@@ -106,7 +107,7 @@ module Paftools
 
     open_in(rest[0]) do |io|
       io.each_line(chomp: true) do |line|
-        t = line.split('\t', 12); next if t.size < 12 || t[5] == "*"
+        t = line.split('\t'); next if t.size < 12 || t[5] == "*"
         (6..11).each { |j| t[j] = t[j].to_i.to_s }
         next if t[10].to_i < min_cov_len || t[11].to_i < min_mapq
         (1..3).each { |j| t[j] = t[j].to_i.to_s }
@@ -202,7 +203,9 @@ module Paftools
     flush_out.call(nil, 0)
 
     STDERR.puts "#{c1_len} reference bases covered by exactly one contig"
-    STDERR.puts "#{n_sub[0]} substitutions; ts/tv = #{n_sub[2] > 0 ? (n_sub[1].to_f/n_sub[2]).round(3) : "N/A"}"
+    ts_tv = n_sub[1].to_f / n_sub[2].to_f
+    ts_tv_str = ts_tv.nan? ? "NaN" : ts_tv.infinite? ? "Infinity" : "%.3f" % ts_tv
+    STDERR.puts "#{n_sub[0]} substitutions; ts/tv = #{ts_tv_str}"
     STDERR.puts "#{n_del[0]} 1bp deletions"; STDERR.puts "#{n_ins[0]} 1bp insertions"
     STDERR.puts "#{n_del[1]} 2bp deletions"; STDERR.puts "#{n_ins[1]} 2bp insertions"
     STDERR.puts "#{n_del[2]} [3,#{gap_thres}) deletions"; STDERR.puts "#{n_ins[2]} [3,#{gap_thres}) insertions"

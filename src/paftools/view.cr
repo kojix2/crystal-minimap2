@@ -16,12 +16,12 @@ module Paftools
                               elen : Array(Int32)) : Nil
     case type
     when '=', ':'
+      # ':' is the short-form identity op (a run length, e.g. ":14"); the
+      # original bases are unknown so lh3/minimap2's paftools.js fills both
+      # sides with '=' placeholders (see paf_view's `Array(n+1).join("=")`).
       l = type == '=' ? seq.size : seq.to_i
-      if type == '='
-        sref << seq; sqry << seq; smid << "|" * l
-      else
-        sref << " " * l; sqry << " " * l; smid << "|" * l
-      end
+      filler = type == '=' ? seq : "=" * l
+      sref << filler; sqry << filler; smid << "|" * l
       elen[0] += l; elen[1] += l
     when '*'
       sref << seq[0]; sqry << seq[1]; smid << " "
@@ -72,7 +72,10 @@ module Paftools
       STDERR.puts "Usage: paftools view [-f aln|maf|lastz-cigar] [-l INT] <in.paf>"; return 1
     end
 
-    puts "##maf version=1\n" if fmt == "maf"
+    if fmt == "maf"
+      puts "##maf version=1"
+      puts ""
+    end
     lineno = 0
 
     open_in(rest[0]) do |io|
@@ -85,7 +88,7 @@ module Paftools
         when "lastz-cigar"
           cg = (m = /\tcg:Z:(\S+)/.match(line)) ? m[1] : nil
           unless cg
-            STDERR.puts "WARNING: no cg tag at line #{lineno}"; next
+            STDERR.puts "WARNING: converting to LASTZ-cigar format requires the 'cg' tag, which is absent on line #{lineno}"; next
           end
           score = (m = /\tAS:i:(\d+)/.match(line)) ? m[1] : "0"
           buf = ["cigar:", t[0], t[2], t[3], t[4], t[5], t[7], t[8], "+", score]
@@ -94,29 +97,40 @@ module Paftools
         when "maf"
           cs = (m = /\tcs:Z:(\S+)/.match(line)) ? m[1] : nil
           unless cs
-            STDERR.puts "WARNING: no cs tag at line #{lineno}"; next
+            STDERR.puts "WARNING: converting to MAF requires the 'cs' tag, which is absent on line #{lineno}"; next
           end
           sref = String::Builder.new; sqry = String::Builder.new
           smid = String::Builder.new; elen = [0, 0]
-          cs.scan(/([: =*+\-])(\S+)/) do |mat|
-            update_aln(sref, sqry, smid, mat[1][0], mat[2], elen)
+          begin
+            cs.scan(/([:=\-+*])(\d+|[A-Za-z]+)/) do |mat|
+              # paftools.js: `if (m[1] == ':') throw Error(...)` — MAF output
+              # requires long-form cs (minimap2 --cs=long); short-form ':' runs
+              # don't carry the actual bases needed to build the MAF block.
+              if mat[1][0] == ':'
+                raise "converting to MAF only works with 'minimap2 --cs=long'"
+              end
+              update_aln(sref, sqry, smid, mat[1][0], mat[2], elen)
+            end
+          rescue ex
+            STDERR.puts "Error: #{ex.message}"
+            return 1
           end
           score = (m = /\tAS:i:(\d+)/.match(line)) ? m[1].to_i : 0
           len = [t[0].size, t[5].size].max
           ql = t[1].to_i
           qs, qe = t[4] == "+" ? {t[2].to_i, t[3].to_i} : {ql - t[3].to_i, ql - t[2].to_i}
           puts "a #{score}"
-          puts [pad("s", 2), pad(t[5], len, true), pad(t[7], 10), pad(t[8].to_i - t[7].to_i, 10), "+", pad(t[6], 10, true), sref.to_s].join(" ")
-          puts [pad("s", 2), pad(t[0], len, true), pad(qs, 10), pad(qe - qs, 10), t[4], pad(ql, 10, true), sqry.to_s].join(" ")
+          puts ["s", pad(t[5], len, true), pad(t[7], 10), pad(t[8].to_i - t[7].to_i, 10), "+", pad(t[6], 10), sref.to_s].join(" ")
+          puts ["s", pad(t[0], len, true), pad(qs, 10), pad(qe - qs, 10), t[4], pad(ql, 10), sqry.to_s].join(" ")
           puts ""
         else # aln (BLAST-like)
           cs = (m = /\tcs:Z:(\S+)/.match(line)) ? m[1] : nil
           unless cs
-            STDERR.puts "WARNING: no cs tag at line #{lineno}"; next
+            STDERR.puts "WARNING: converting to BLAST-like alignment requires the 'cs' tag, which is absent on line #{lineno}"; next
           end
           # count stats
           n_mm = 0; n_oi = 0; n_od = 0; n_ei = 0; n_ed = 0
-          cs.scan(/([: =*+\-])(\S+)/) do |mat|
+          cs.scan(/([:=\-+*])(\d+|[A-Za-z]+)/) do |mat|
             case mat[1][0]
             when '*'; n_mm += 1
             when '+'; n_oi += 1; n_ei += mat[2].size
@@ -131,7 +145,7 @@ module Paftools
           sref = ""; sqry = ""; smid = ""; sref_len = 0
           slen = [0, 0]; elen = [0, 0]; n_blocks = 0
 
-          cs.scan(/([: =*+\-])(\S+)/) do |mat|
+          cs.scan(/([:=\-+*])(\d+|[A-Za-z]+)/) do |mat|
             op = mat[1][0]; seq = mat[2]
             rest_len = op == '*' ? 1 : (op == ':' ? seq.to_i : seq.size)
             start_pos = 0
@@ -142,7 +156,9 @@ module Paftools
               part = if op == '*'
                        seq
                      elsif op == ':'
-                       " " * l_proc # short cs: no bases available, use spaces
+                       # short cs identity run: bases are unknown, so
+                       # paftools.js fills both ref/qry with '=' placeholders
+                       "=" * l_proc
                      else
                        seq[start_pos, l_proc]
                      end

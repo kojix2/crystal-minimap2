@@ -3,14 +3,16 @@ module Paftools
   # asmstat — assembly alignment statistics vs reference
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  private def self.n_stat(lens : Array(Int32), tot : Int64, quantile : Float64) : Int32
+  # Returns nil (like JS's implicit `undefined`) when no length satisfies the
+  # quantile condition, so callers can render an empty field instead of "0".
+  private def self.n_stat(lens : Array(Int32), tot : Int64, quantile : Float64) : Int32?
     sorted = lens.sort.reverse!
     sum = 0_i64
     sorted.each do |len|
       return len if sum <= quantile * tot && sum + len > quantile * tot
       sum += len
     end
-    0
+    nil
   end
 
   private def self.aun_stat(lens : Array(Int32), tot : Int64) : Float64
@@ -26,12 +28,15 @@ module Paftools
 
   def self.cmd_asmstat(args : Array(String)) : Int32
     min_query_len = 0; min_seg_len = 10000; max_diff = 0.01
+    bp_flank_len = 0; bp_gap_len = 0
     rest = [] of String; i = 0
     while i < args.size
       case args[i]
       when "-q"; i += 1; min_query_len = args[i].to_i
       when "-l"; i += 1; min_seg_len = args[i].to_i
       when "-d"; i += 1; max_diff = args[i].to_f
+      when "-b"; i += 1; bp_flank_len = args[i].to_i
+      when "-g"; i += 1; bp_gap_len = args[i].to_i
       when "-h", "--help"
         STDERR.puts "Usage: paftools asmstat [options] <ref.fa.fai> <asm1.paf> [...]"; return 0
       else rest << args[i]
@@ -45,7 +50,7 @@ module Paftools
     ref_len = 0_i64
     File.open(rest[0]) { |file| file.each_line(chomp: true) { |line2| ref_len += line2.split('\t')[1].to_i64 } }
 
-    labels = ["Length", "l_cov", "Rcov%", "Rdup%", "Qcov%", "NG75", "NG50", "NGA50", "AUNGA",
+    labels = ["Length", "l_cov", "Rcov", "Rdup", "Qcov", "NG75", "NG50", "NGA50", "AUNGA",
               "#breaks", "bp(#{min_seg_len},0)", "bp(#{min_seg_len},10k)"]
     rst = Array.new(labels.size) { [] of String }
     header = ["Metric"]
@@ -139,8 +144,8 @@ module Paftools
       asm_len = 0_i64; asm_lens = [] of Int32
       query.each { |_, qlen| asm_len += qlen; asm_lens << qlen }
       rst[0] << asm_len.to_s
-      rst[5] << n_stat(asm_lens, ref_len, 0.75).to_s
-      rst[6] << n_stat(asm_lens, ref_len, 0.50).to_s
+      rst[5] << (n_stat(asm_lens, ref_len, 0.75).try(&.to_s) || "")
+      rst[6] << (n_stat(asm_lens, ref_len, 0.50).try(&.to_s) || "")
 
       ref_blocks.sort_by! { |b| {b[0], b[1]} }
       l_cov = 0_i64
@@ -155,8 +160,8 @@ module Paftools
       end
       l_cov += en2 - st2 if st2 >= 0
       rst[1] << l_cov.to_s
-      rst[2] << "#{"%.2f" % (100.0 * l_cov / ref_len)}%"
-      rst[4] << "#{"%.2f" % (100.0 * qcov / [asm_len, 1].max)}%"
+      rst[2] << "#{js_fixed2(100.0 * l_cov / ref_len)}%"
+      rst[4] << "#{js_fixed2(100.0 * qcov / asm_len)}%"
 
       c1_ctg2 : String? = nil; c1_start2 = 0; c1_end2 = 0; c1_len2 = 0_i64
       ref_blocks.each do |b|
@@ -172,9 +177,9 @@ module Paftools
         end
       end
       c1_len2 += c1_end2 - c1_start2 if c1_end2 > c1_start2
-      rst[3] << (l_cov > 0 ? "#{"%.2f" % (100.0 * (l_cov - c1_len2) / l_cov)}%" : "0.00%")
+      rst[3] << "#{js_fixed2(100.0 * (l_cov - c1_len2) / l_cov)}%"
 
-      rst[7] << n_stat(qblock_len, ref_len, 0.50).to_s
+      rst[7] << (n_stat(qblock_len, ref_len, 0.50).try(&.to_s) || "")
       rst[8] << "%.0f" % aun_stat(qblock_len, ref_len)
       rst[9] << n_breaks.to_s
       count_bp = ->(min_blen : Int32, min_gap : Int32) { bp.count { |b| b[0] >= min_blen && b[1] >= min_gap } }
@@ -182,8 +187,10 @@ module Paftools
       rst[11] << count_bp.call(500, 10000).to_s
     end
 
-    puts header.join('\t')
-    labels.size.times { |k| puts (["#{labels[k]}"] + rst[k]).join('\t') }
+    if bp_flank_len <= 0
+      puts header.join('\t')
+      labels.size.times { |k| puts (["#{labels[k]}"] + rst[k]).join('\t') }
+    end
     0
   end
 
@@ -222,11 +229,14 @@ module Paftools
         if s[j][2] <= en2
           en2 = [en2, s[j][3]].max
         else
-          l_cov2 += en2 - st2; st2 = s[j][2]; en2 = s[j][3]
+          # NOTE: upstream paftools.js has a bug here - it never resets st/en
+          # in this branch (only accumulates l_cov using the stale values).
+          # Replicated verbatim for identical output, not "fixed".
+          l_cov2 += en2 - st2
         end
       end
       l_cov2 += en2 - st2
-      cnt[1] = b[0][1] > 0 ? l_cov2.to_f / b[0][1] : 0.0
+      cnt[1] = l_cov2.to_f64 / b[0][1]
       cnt[2] = b.size
       cnt
     }
@@ -241,21 +251,24 @@ module Paftools
       label = fn.sub(/\.paf(\.gz)?$/, "")
       header << label
       a = [] of Array(Int32)
+      last_qname = nil.as(String?)
       open_in(fn) do |io|
         io.each_line(chomp: true) do |line|
           t = line.split('\t')
           next if t.size < 12
+          qname = t[0]
           ql = t[1].to_i; qs2 = t[2].to_i; qe2 = t[3].to_i; mlen = t[9].to_i; blen = t[10].to_i
-          refpos[t[0]] = [t[0], t[1], t[5], t[7], t[8]] if fn_i == 0
-          gene[t[0]] ||= Array(Array(Int32 | Float64)?).new(n_fn, nil)
-          if a.size > 0 && t[0] != a[0][0].to_s
-            gene[a[0][0].to_s]?.try { |arr| arr[fn_i] = process_qry.call(a) }
+          refpos[qname] = [qname, t[1], t[5], t[7], t[8]] if fn_i == 0
+          gene[qname] ||= Array(Array(Int32 | Float64)?).new(n_fn, nil)
+          if a.size > 0 && qname != last_qname
+            gene[last_qname.not_nil!]?.try { |arr| arr[fn_i] = process_qry.call(a) }
             a = [] of Array(Int32)
           end
-          a << [t[0].hash.to_i32, ql, qs2, qe2, mlen, blen]
+          a << [0, ql, qs2, qe2, mlen, blen]
+          last_qname = qname
         end
       end
-      gene[a[0][0].to_s]?.try { |arr| arr[fn_i] = process_qry.call(a) } unless a.empty?
+      gene[last_qname.not_nil!]?.try { |arr| arr[fn_i] = process_qry.call(a) } unless a.empty?
     end
 
     # Deduplicate reference: keep longest non-overlapping gene per locus
@@ -277,7 +290,7 @@ module Paftools
       next unless ref_row = arr[0]
       ref_cnt = ref_row[0].as(Int32)
       next if ref_cnt != 1
-      next unless gene_nr[gname]
+      next unless gene_nr[gname]?
       next if auto_only && (rp = refpos[gname]?) && rp[2] =~ /^(chr)?[XY]$/
       n_fn.times do |fn_i|
         if (ga = arr[fn_i]).nil?
@@ -302,6 +315,23 @@ module Paftools
               rst2[5][fn_i] += 1; puts "0\t#{header[fn_i]}\t#{refpos[gname]?.try(&.join("\t"))}" if print_err
             end
           end
+        end
+      end
+    end
+
+    # count multi-copy (reference-side duplicated) genes
+    gene.each do |gname, arr|
+      ref_row = arr[0]
+      next if ref_row.nil? || ref_row[0].as(Int32) <= 1
+      next unless gene_nr[gname]?
+      next if auto_only && (rp = refpos[gname]?) && rp[2] =~ /^(chr)?[XY]$/
+      n_fn.times do |fn_i|
+        ga = arr[fn_i]
+        rst2[7][fn_i] += ga[0].as(Int32) if ga
+        if ga && ga[0].as(Int32) > 1
+          rst2[6][fn_i] += 1
+        elsif print_err
+          puts "d\t#{header[fn_i]}\t#{ref_row[0]}\t#{refpos[gname]?.try(&.join("\t"))}"
         end
       end
     end

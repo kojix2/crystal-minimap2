@@ -37,7 +37,9 @@ module Paftools
 
         if t.size > 4 && (t[4] == "+" || t[4] == "-" || t[4] == "*")
           next if t[4] == "*"
-          if line.includes?("\ts2:i:")
+          # minimap2 only tags primary PAF records with s2:i: (chaining score
+          # of the 2nd best hit); its absence marks a secondary alignment.
+          unless line =~ /\ts2:i:\d+/
             n_2nd += 1; next
           end
           nm = $1.to_i if line =~ /\tNM:i:(\d+)/

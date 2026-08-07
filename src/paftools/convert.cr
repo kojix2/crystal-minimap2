@@ -36,8 +36,12 @@ module Paftools
           end
           next
         end
-        t = line.split('\t', 11)
+        t = line.split('\t')
         flag = t[1].to_i
+        if t[9] != "*" && t[10] != "*" && t[9].size != t[10].size
+          STDERR.puts "Error: at line #{lineno}: inconsistent SEQ and QUAL lengths - #{t[9].size} != #{t[10].size}"
+          return 1
+        end
         if t.size < 10 || t[2] == "*" || (flag & 4) != 0 || t[5] == "*"
           if allow_unmapped
             qlen = t[9] == "*" ? 0 : t[9].size
@@ -49,7 +53,7 @@ module Paftools
         next if pri_pri_only && (flag & 0x900) != 0
         tlen = ctg_len[t[2]]?
         unless tlen
-          STDERR.puts "Error at line #{lineno}: no length for contig #{t[2]}"; return 1
+          STDERR.puts "Error: at line #{lineno}: can't find the length of contig #{t[2]}"; return 1
         end
 
         nm : Int32? = nil; md : String? = nil; cs_str : String? = nil
@@ -96,29 +100,29 @@ module Paftools
         tl_total = m_len + d_ops[1] + n_span
         ts = t[3].to_i - 1; te = ts + tl_total
         if n_cigar > 65535
-          STDERR.puts "WARNING at line #{lineno}: #{n_cigar} CIGAR ops"
+          STDERR.puts "WARNING at line #{lineno}: #{n_cigar} CIGAR operations"
         end
         if te > tlen
-          STDERR.puts "WARNING at line #{lineno}: alignment end > ref length; skipped"; next
+          STDERR.puts "WARNING at line #{lineno}: alignment end position larger than ref length; skipped"; next
         end
         if t[9] != "*" && t[9].size != ql_total
-          STDERR.puts "WARNING at line #{lineno}: SEQ length inconsistent with CIGAR; skipped"; next
+          STDERR.puts "WARNING at line #{lineno}: SEQ length inconsistent with CIGAR (#{t[9].size} != #{ql_total}); skipped"; next
         end
 
         # Compute mm from CIGAR type
         if have_ext && !have_m
           nm_val = i_ops[1] + d_ops[1] + mm
-          STDERR.puts "WARNING at line #{lineno}: NM differs" if nm && nm != nm_val
+          STDERR.puts "WARNING at line #{lineno}: NM is different from sum of gaps and mismatches" if nm && nm != nm_val
           nm = nm_val
         elsif nv = nm
           if nv < i_ops[1] + d_ops[1]
-            STDERR.puts "WARNING at line #{lineno}: NM < total gaps"
+            STDERR.puts "WARNING at line #{lineno}: NM is less than the total number of gaps (#{nv} < #{i_ops[1] + d_ops[1]})"
             nm = i_ops[1] + d_ops[1]
           end
           mm = (nm || 0) - (i_ops[1] + d_ops[1])
         else
-          STDERR.puts "WARNING at line #{lineno}: no NM, assuming 0 mismatches"
-          mm = 0; nm = i_ops[1] + d_ops[1]
+          STDERR.puts "WARNING at line #{lineno}: unable to find the number of mismatches; assuming zero"
+          mm = 0
         end
         mlen_match = m_len - mm
         blen = m_len + i_ops[1] + d_ops[1]
@@ -276,7 +280,7 @@ module Paftools
     end
     open_in(rest[0]) do |io|
       io.each_line(chomp: true) do |line|
-        t = line.split('\t', 13)
+        t = line.split('\t')
         cs : String? = nil
         (12...t.size).each do |j|
           if m = /^cs:Z:(\S+)/.match(t[j])
